@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@companion-module/base/assets/manifest.schema.json",
   "type": "connection",
   "id": "kra55k0pf-hotbutton",
-  "name": "HotButton",
+  "name": "HotButton: OSC",
   "shortname": "HotButton",
   "description": "PoE OSC HotButton for Bitfocus Companion",
   "version": "0.2.0",
