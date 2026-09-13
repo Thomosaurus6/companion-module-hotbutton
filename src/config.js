@@ -1,0 +1,146 @@
+import { Regex } from '@companion-module/base'
+
+export function getConfigFields(self) {
+  const cfg = self.config ?? {}
+  const effectiveIp = self.getTargetIp() || '—'
+  const deviceId = self.deviceId || cfg.deviceId || '—'
+  const pairingState = self.getPairingStateLabel()
+  const onlineText = self.online ? 'ONLINE' : 'OFFLINE'
+
+  return [
+    {
+      type: 'dropdown',
+      id: 'pairingMode',
+      label: 'Pairing Mode',
+      width: 4,
+      default: 'learn',
+      choices: [
+        { id: 'manual', label: 'Manual' },
+        { id: 'learn', label: 'Learn' },
+      ],
+      disableAutoExpression: true,
+    },
+    {
+      type: 'textinput',
+      id: 'manualIp',
+      label: 'HotButton IP Address',
+      width: 8,
+      default: '',
+      regex: Regex.IP,
+      isVisibleExpression: "$(options:pairingMode) == 'manual'",
+      disableAutoExpression: true,
+      description: 'Manual mode: enter the HotButton IP. The Device ID is validated/re-learned automatically from this IP.',
+    },
+    {
+      type: 'static-text',
+      id: 'learnInfo',
+      label: 'Learn Mode',
+      width: 12,
+      value: 'Press the physical HotButton to pair this Companion connection. Manual IP entry is intentionally unavailable in Learn mode.',
+      isVisibleExpression: "$(options:pairingMode) == 'learn'",
+    },
+    {
+      type: 'checkbox',
+      id: 'relearn',
+      label: 'Forget current pairing and wait for next button press',
+      width: 12,
+      default: false,
+      isVisibleExpression: "$(options:pairingMode) == 'learn'",
+      disableAutoExpression: true,
+    },
+    {
+      type: 'static-text',
+      id: 'pairingStateInfo',
+      label: 'Pairing State',
+      width: 4,
+      value: pairingState,
+    },
+    {
+      type: 'static-text',
+      id: 'deviceInfo',
+      label: 'Device',
+      width: 4,
+      value: deviceId,
+    },
+    {
+      type: 'static-text',
+      id: 'ipInfo',
+      label: 'Active IP',
+      width: 4,
+      value: effectiveIp,
+    },
+    {
+      type: 'static-text',
+      id: 'onlineInfo',
+      label: 'Device Status',
+      width: 4,
+      value: onlineText,
+    },
+    {
+      type: 'number',
+      id: 'longPressThreshold',
+      label: 'Long Press Threshold (ms)',
+      width: 4,
+      default: 2000,
+      min: 0,
+      max: 60000,
+      step: 100,
+      asInteger: true,
+      disableAutoExpression: true,
+      description: 'Default 2000 ms. Long Press timing is measured entirely inside Companion.',
+    },
+    {
+      type: 'checkbox',
+      id: 'longPressWhileHeld',
+      label: 'Trigger Long Press while button is still held',
+      width: 8,
+      default: true,
+      disableAutoExpression: true,
+      description: 'Enabled: Long Press fires immediately when the threshold is reached. Disabled: it fires only when the button is released after exceeding the threshold.',
+    },
+    {
+      type: 'number',
+      id: 'oscPort',
+      label: 'OSC Port',
+      width: 4,
+      default: 13122,
+      min: 1,
+      max: 65535,
+      asInteger: true,
+      disableAutoExpression: true,
+      description: '13122 is the standard HotButton OSC port.',
+    },
+    {
+      type: 'number',
+      id: 'onlineTimeout',
+      label: 'Online Timeout (ms)',
+      width: 4,
+      default: 20000,
+      min: 5000,
+      max: 120000,
+      step: 1000,
+      asInteger: true,
+      disableAutoExpression: true,
+      description: 'Default 20000 ms. Keep this comfortably above the firmware heartbeat interval (5000 ms).',
+    },
+    // Persisted internal pairing values. Hidden from the UI but part of the config schema.
+    {
+      type: 'textinput',
+      id: 'learnedIp',
+      label: 'Learned IP (internal)',
+      width: 12,
+      default: '',
+      isVisibleExpression: 'false',
+      disableAutoExpression: true,
+    },
+    {
+      type: 'textinput',
+      id: 'deviceId',
+      label: 'Device ID (internal)',
+      width: 12,
+      default: '',
+      isVisibleExpression: 'false',
+      disableAutoExpression: true,
+    },
+  ]
+}

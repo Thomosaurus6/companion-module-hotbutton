@@ -1,0 +1,20 @@
+{
+  "$schema": "../node_modules/@companion-module/base/assets/manifest.schema.json",
+  "type": "connection",
+  "id": "kra55k0pf-hotbutton",
+  "name": "HotButton",
+  "shortname": "HotButton",
+  "description": "PoE OSC HotButton for Bitfocus Companion",
+  "version": "0.2.0",
+  "license": "MIT",
+  "runtime": {
+    "type": "node22",
+    "api": "nodejs-ipc",
+    "apiVersion": "0.0.0",
+    "entrypoint": "../src/main.js"
+  },
+  "legacyIds": [],
+  "manufacturer": "Kra55k0pf",
+  "products": ["HotButton"],
+  "keywords": ["osc", "button", "poe", "rp2350"]
+}
