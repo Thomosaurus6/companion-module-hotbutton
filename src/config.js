@@ -76,6 +76,13 @@ export function getConfigFields(self) {
       width: 4,
       value: onlineText,
     },
+{
+  type: 'static-text',
+  id: 'longPressSection',
+  label: 'Long Press',
+  width: 12,
+  value: '<br />',
+},
     {
       type: 'number',
       id: 'longPressThreshold',
@@ -98,6 +105,13 @@ export function getConfigFields(self) {
       disableAutoExpression: true,
       description: 'Enabled: Long Press fires immediately when the threshold is reached. Disabled: it fires only when the button is released after exceeding the threshold.',
     },
+{
+  type: 'static-text',
+  id: 'communicationSection',
+  label: 'Communication',
+  width: 12,
+  value: '<br />',
+},
     {
       type: 'number',
       id: 'oscPort',
