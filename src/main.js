@@ -21,7 +21,7 @@ class HotButtonInstance extends InstanceBase {
     this.lastSeenAt = 0
     this.lastEvent = ''
 
-    this.buttonState = 'released'
+    this.buttonState = ''
     this.lastPressAt = 0
     this.pressStartedAt = 0
     this.previousPressAt = 0
@@ -225,7 +225,7 @@ class HotButtonInstance extends InstanceBase {
     this.online = false
     this.lastSeenAt = 0
 
-    this.buttonState = 'released'
+    this.buttonState = ''
     this.pressStartedAt = 0
 
     this.longPressQualified = false
@@ -308,8 +308,9 @@ class HotButtonInstance extends InstanceBase {
         '',
 
       button_state:
-        this.buttonState ||
-        'released',
+        this.online
+          ? this.buttonState
+          : '',
 
       last_event:
         this.lastEvent ||
@@ -463,9 +464,18 @@ class HotButtonInstance extends InstanceBase {
     if (shouldBeOnline !== this.online) {
       this.online = shouldBeOnline
 
+      if (!this.online) {
+        this.buttonState = ''
+        this.pressStartedAt = 0
+        this.longPressQualified = false
+        this.longPressActive = false
+        this.clearLongPressTimers()
+      }
+
       this.updateVariables()
       this.checkFeedbacks(
         'device_online',
+        'button_long_press',
       )
       this.refreshStatus()
     }
@@ -1007,6 +1017,7 @@ class HotButtonInstance extends InstanceBase {
     // The integer state is a safety net for a lost UDP release packet.
     // Most heartbeats will naturally contain 0 because normal
     // button presses are short.
+
     if (
       buttonState === 0 &&
       this.buttonState ===
@@ -1044,6 +1055,14 @@ class HotButtonInstance extends InstanceBase {
       )
 
       return
+    }
+
+    if (
+      buttonState === 0 &&
+      this.buttonState === ''
+    ) {
+      this.buttonState =
+        'released'
     }
 
     this.updateVariables(
