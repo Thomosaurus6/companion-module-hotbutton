@@ -9,6 +9,14 @@ const COLOR_CHOICES = [
   { id: 'custom', label: 'Custom RGB' },
 ]
 
+const FLASH_CHOICES = [
+  { id: 0, label: 'Off' },
+  ...Array.from({ length: 10 }, (_, i) => ({
+    id: i + 1,
+    label: `${i + 1} ${'▶'.repeat(i + 1)}`,
+  })),
+]
+
 function dynamicIntegerOption(id, label, defaultValue, min, max) {
   return {
     type: 'number',
@@ -60,6 +68,7 @@ export function updateActions(self) {
         }
       },
     },
+
     led_brightness: {
       name: 'LED Brightness',
       options: [
@@ -79,105 +88,65 @@ export function updateActions(self) {
       ],
       callback: (action) => {
         const value = self.clampInt(action.options.value, 0, 100)
-        const suffix = action.options.operation === 'increase' ? '/add' : action.options.operation === 'decrease' ? '/sub' : ''
+        const suffix =
+          action.options.operation === 'increase'
+            ? '/add'
+            : action.options.operation === 'decrease'
+              ? '/sub'
+              : ''
+
         self.sendOsc(`/led/brightness${suffix}`, [{ type: 'i', value }])
       },
     },
+
     led_flash: {
       name: 'LED Flash',
+      description: 'Off = solid output. Program 1 = slowest, Program 10 = fastest.',
       options: [
         {
           type: 'dropdown',
           id: 'program',
           label: 'Flash Program',
-          default: 1,
-          choices: Array.from({ length: 10 }, (_, i) => ({ id: i + 1, label: `Program ${i + 1}` })),
+          default: 0,
+          choices: FLASH_CHOICES,
           disableAutoExpression: true,
-        },
-      ],
-      callback: (action) => self.sendOsc('/led/flash', [{ type: 'i', value: self.clampInt(action.options.program, 1, 10) }]),
-    },
-    led_solid: {
-      name: 'LED Solid',
-      options: [],
-      callback: () => self.sendOsc('/led/solid', []),
-    },
-    led_on: {
-      name: 'LED On',
-      options: [],
-      callback: () => self.sendOsc('/led/on', []),
-    },
-    led_off: {
-      name: 'LED Off',
-      options: [],
-      callback: () => self.sendOsc('/led/off', []),
-    },
-    led_reset: {
-      name: 'LED Reset',
-      options: [],
-      callback: () => self.sendOsc('/led/reset', []),
-    },
-    network_configuration: {
-      name: 'Network Configuration',
-      options: [
-        {
-          type: 'dropdown',
-          id: 'mode',
-          label: 'Network Mode',
-          default: 'dhcp',
-          choices: [
-            { id: 'dhcp', label: 'DHCP' },
-            { id: 'static', label: 'Static' },
-          ],
-          disableAutoExpression: true,
-        },
-        {
-          type: 'textinput',
-          id: 'ip',
-          label: 'IP Address',
-          default: '10.1.10.50',
-          useVariables: true,
-          isVisibleExpression: "$(options:mode) == 'static'",
-        },
-        {
-          type: 'textinput',
-          id: 'subnet',
-          label: 'Subnet Mask',
-          default: '255.255.255.0',
-          useVariables: true,
-          isVisibleExpression: "$(options:mode) == 'static'",
-        },
-        {
-          type: 'textinput',
-          id: 'gateway',
-          label: 'Gateway',
-          default: '0.0.0.0',
-          useVariables: true,
-          isVisibleExpression: "$(options:mode) == 'static'",
-          description: 'Use 0.0.0.0 when no gateway is required.',
         },
       ],
       callback: (action) => {
-        if (action.options.mode === 'dhcp') {
-          if (!self.sendOsc('/network/dhcp', [])) return
-          self.enterLearnModeAfterDhcp()
-          return
-        }
+        const program = self.clampInt(action.options.program, 0, 10)
 
-        const ip = String(action.options.ip ?? '').trim()
-        const subnet = String(action.options.subnet ?? '').trim()
-        const gateway = String(action.options.gateway ?? '0.0.0.0').trim()
-        if (!self.isIPv4(ip) || !self.isIPv4(subnet) || !self.isIPv4(gateway)) {
-          self.log('warn', `Static network configuration rejected: invalid IPv4 value(s)`)
-          return
+        if (program === 0) {
+          self.sendOsc('/led/solid', [])
+        } else {
+          self.sendOsc('/led/flash', [{ type: 'i', value: program }])
         }
-        if (!self.sendOsc('/network/static', [
-          { type: 's', value: ip },
-          { type: 's', value: subnet },
-          { type: 's', value: gateway },
-        ])) return
-        self.followStaticIp(ip)
       },
+    },
+
+    led_state: {
+      name: 'LED State',
+      options: [
+        {
+          type: 'dropdown',
+          id: 'state',
+          label: 'State',
+          default: 'on',
+          choices: [
+            { id: 'on', label: 'On' },
+            { id: 'off', label: 'Off' },
+            { id: 'toggle', label: 'Toggle' },
+          ],
+          disableAutoExpression: true,
+        },
+      ],
+      callback: (action) => self.sendOsc(`/led/${action.options.state}`, []),
+    },
+
+    led_reset: {
+      name: 'LED Reset',
+      description: 'Resets the LED to White, 0% brightness, Flash Off and LED Off.',
+      options: [],
+      callback: () => self.sendOsc('/led/reset', []),
     },
   })
 }

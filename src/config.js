@@ -6,6 +6,7 @@ export function getConfigFields(self) {
   const deviceId = self.deviceId || cfg.deviceId || '—'
   const pairingState = self.getPairingStateLabel()
   const onlineText = self.online ? 'ONLINE' : 'OFFLINE'
+  const hasLearnedDevice = Boolean(self.deviceId || cfg.deviceId) && Boolean(cfg.learnedIp)
 
   return [
     {
@@ -36,7 +37,7 @@ export function getConfigFields(self) {
       id: 'learnInfo',
       label: 'Learn Mode',
       width: 12,
-      value: 'Press the physical HotButton to pair this Companion connection. Manual IP entry is intentionally unavailable in Learn mode.',
+      value: 'Press the physical HotButton to pair this Companion connection.',
       isVisibleExpression: "$(options:pairingMode) == 'learn'",
     },
     {
@@ -76,13 +77,54 @@ export function getConfigFields(self) {
       width: 4,
       value: onlineText,
     },
-{
-  type: 'static-text',
-  id: 'longPressSection',
-  label: 'Long Press',
-  width: 12,
-  value: '<br />',
-},
+
+    {
+      type: 'static-text',
+      id: 'networkSetupSection',
+      label: 'Set Static Network Configuration',
+      width: 12,
+      value: 'Enter the desired static network configuration and save. The settings will be sent to the paired HotButton and this connection will automatically switch to Manual mode.',
+      isVisibleExpression: hasLearnedDevice ? "$(options:pairingMode) == 'learn'" : 'false',
+    },
+    {
+      type: 'textinput',
+      id: 'staticIp',
+      label: 'IP Address',
+      width: 4,
+      default: '',
+      regex: Regex.IP,
+      isVisibleExpression: hasLearnedDevice ? "$(options:pairingMode) == 'learn'" : 'false',
+      disableAutoExpression: true,
+    },
+    {
+      type: 'textinput',
+      id: 'staticSubnet',
+      label: 'Subnet Mask',
+      width: 4,
+      default: '255.255.255.0',
+      regex: Regex.IP,
+      isVisibleExpression: hasLearnedDevice ? "$(options:pairingMode) == 'learn'" : 'false',
+      disableAutoExpression: true,
+    },
+    {
+      type: 'textinput',
+      id: 'staticGateway',
+      label: 'Gateway',
+      width: 4,
+      default: '0.0.0.0',
+      regex: Regex.IP,
+      isVisibleExpression: hasLearnedDevice ? "$(options:pairingMode) == 'learn'" : 'false',
+      disableAutoExpression: true,
+      description: '0.0.0.0 disables gateway ping monitoring in the HotButton firmware.',
+    },
+
+    {
+      type: 'static-text',
+      id: 'longPressSection',
+      label: 'Long Press',
+      width: 12,
+      value: '<br />',
+    },
     {
       type: 'number',
       id: 'longPressThreshold',
@@ -105,13 +147,14 @@ export function getConfigFields(self) {
       disableAutoExpression: true,
       description: 'Enabled: Long Press fires immediately when the threshold is reached. Disabled: it fires only when the button is released after exceeding the threshold.',
     },
-{
-  type: 'static-text',
-  id: 'communicationSection',
-  label: 'Communication',
-  width: 12,
-  value: '<br />',
-},
+
+    {
+      type: 'static-text',
+      id: 'communicationSection',
+      label: 'Communication',
+      width: 12,
+      value: '<br />',
+    },
     {
       type: 'number',
       id: 'oscPort',
@@ -137,6 +180,7 @@ export function getConfigFields(self) {
       disableAutoExpression: true,
       description: 'Default 20000 ms. Keep this comfortably above the firmware heartbeat interval (5000 ms).',
     },
+
     // Persisted internal pairing values. Hidden from the UI but part of the config schema.
     {
       type: 'textinput',

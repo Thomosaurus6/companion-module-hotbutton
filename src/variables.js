@@ -7,7 +7,13 @@ export function updateVariableDefinitions(self) {
     pairing_state: { name: 'Pairing State' },
     online: { name: 'Device Online' },
     last_seen: { name: 'Last Seen' },
+
     last_press_duration_ms: { name: 'Last Press Duration (ms)' },
+    last_press_duration_seconds: { name: 'Last Press Duration (seconds)' },
+    last_press_duration_minutes: { name: 'Last Press Duration (minutes)' },
+
     last_press_interval_ms: { name: 'Last Press-to-Press Interval (ms)' },
+    last_press_interval_seconds: { name: 'Last Press-to-Press Interval (seconds)' },
+    last_press_interval_minutes: { name: 'Last Press-to-Press Interval (minutes)' },
   })
 }

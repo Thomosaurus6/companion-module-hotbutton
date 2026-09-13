@@ -39,16 +39,6 @@ export function updateFeedbacks(self) {
       options: [],
       callback: () => self.longPressActive,
     },
-    device_paired: {
-      name: 'Device Paired',
-      type: 'boolean',
-      defaultStyle: {
-        bgcolor: combineRgb(0, 160, 0),
-        color: combineRgb(255, 255, 255),
-      },
-      options: [],
-      callback: () => self.isPaired(),
-    },
     device_online: {
       name: 'Device Online',
       type: 'boolean',
