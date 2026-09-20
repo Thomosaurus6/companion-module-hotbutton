@@ -125,4 +125,4 @@ First stable release after end-to-end hardware testing. The release includes per
 
 MIT
 
-Maintainer: Thomas Thielen / Thomosaurus6
+Maintainer: Kra55k0pf
