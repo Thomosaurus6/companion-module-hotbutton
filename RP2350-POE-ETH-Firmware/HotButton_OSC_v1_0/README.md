@@ -10,11 +10,7 @@ This firmware is designed to work together with the HotButton module for **Bitfo
 
 **HotButton Firmware v1.0**
 
-Arduino sketch:
-
-`HotButton_OSC_v1_0.ino`
-
----
+Arduino sketch: `HotButton_OSC_v1_0.ino`
 
 ## Hardware
 
@@ -30,11 +26,7 @@ Arduino sketch:
 
 The external WS2812 LED is optional. The HotButton operates normally without an LED connected to GPIO1.
 
----
-
 ## Features
-
-The firmware provides:
 
 - DHCP and static IPv4 operation
 - Persistent Companion pairing
@@ -50,21 +42,15 @@ The firmware provides:
 
 Long-press detection is intentionally handled by the **Companion module**, not by the firmware.
 
----
-
 ## Ethernet / W6300 Driver
 
 The firmware uses the Waveshare/WIZnet W6300 driver sources included in the local `src` directory.
 
-> **Important**
->
-> Do not replace the included W6300 driver files with the unmodified Waveshare/WIZnet versions without reviewing the changes.
+> **Important:** Do not replace the included W6300 driver files with the unmodified Waveshare/WIZnet versions without reviewing the changes.
 >
 > The included `socket.c` contains a required fix for **non-blocking UDP socket operation**. Without this fix, the OSC receive loop can block after startup and prevent further button, heartbeat and OSC processing.
 
 The required driver files are included with the firmware so that the tested v1.0 implementation remains self-contained.
-
----
 
 ## Network Behaviour
 
@@ -72,17 +58,13 @@ The required driver files are included with the firmware so that the tested v1.0
 
 The HotButton initially starts using **DHCP**.
 
-While the device is unpaired, OSC discovery traffic is sent using directed broadcast.
-
-After successful pairing with Companion, the Companion IP address is stored persistently and normal communication switches to **unicast UDP**.
+While the device is unpaired, OSC discovery traffic is sent using directed broadcast. After successful pairing with Companion, the Companion IP address is stored persistently and normal communication switches to **unicast UDP**.
 
 Pairing therefore survives a normal HotButton reboot or power cycle.
 
 ### Static IP
 
-A static IPv4 configuration can be sent from the Companion module.
-
-Supported parameters are:
+A static IPv4 configuration can be sent from the Companion module. Supported parameters are:
 
 - IP address
 - Subnet mask
@@ -91,8 +73,6 @@ Supported parameters are:
 A gateway of `0.0.0.0` disables gateway monitoring.
 
 Changing the HotButton's own IP configuration does **not** clear its stored Companion pairing.
-
----
 
 ## Physical Recovery
 
@@ -105,29 +85,20 @@ This clears:
 - Stored static network configuration
 - Stored Companion pairing
 
-The HotButton then returns to:
-
-- DHCP
-- Unpaired state
-- Broadcast discovery
+The HotButton then returns to **DHCP**, an **unpaired state**, and **broadcast discovery**.
 
 After the initial 30-second boot window, the recovery function is disabled until the next reboot. Normal button operation continues unaffected.
 
 This is intentionally **not a full factory reset** of unrelated settings.
 
----
-
 ## OSC Communication
 
-Default UDP port:
-
-`13122`
+Default UDP port: **13122**
 
 ### Button Events
 
-`/<device-id>_press`
-
-`/<device-id>_release`
+- `/<device-id>_press`
+- `/<device-id>_release`
 
 The firmware additionally implements OSC messages for:
 
@@ -138,8 +109,6 @@ The firmware additionally implements OSC messages for:
 - Static network configuration
 
 The corresponding protocol handling is implemented by the HotButton Companion module.
-
----
 
 ## LED Control
 
@@ -157,9 +126,7 @@ The firmware also reports the current LED state back to Companion.
 
 ### Startup State
 
-LED settings are **not restored from previous operation**.
-
-At every normal boot, the firmware initializes a defined default state:
+LED settings are **not restored from previous operation**. At every normal boot, the firmware initializes a defined default state:
 
 | Setting | Default |
 | --- | --- |
@@ -171,23 +138,23 @@ During startup, the onboard LED may temporarily display network/status informati
 
 After the startup sequence has completed, the initialized LED state is sent to Companion so that Companion feedbacks and variables match the actual HotButton state.
 
----
-
 ## Serial Debugging
 
 Serial debug output is controlled centrally in the Arduino sketch.
 
 Normal operation:
 
-`static const bool debug_serial = false;`
+```cpp
+static const bool debug_serial = false;
+```
 
 Enable diagnostic serial output:
 
-`static const bool debug_serial = true;`
+```cpp
+static const bool debug_serial = true;
+```
 
 When debugging is disabled, normal serial diagnostic output is suppressed.
-
----
 
 ## Companion Module
 
@@ -206,14 +173,20 @@ Companion handles:
 
 The firmware and Companion module contained in this repository were developed and hardware-tested together as the **HotButton v1.0 implementation**.
 
----
-
 ## Firmware Structure
 
-`HotButton_OSC_v1_0/`
-
-- `HotButton_OSC_v1_0.ino` — main Arduino firmware
-- `WAVESHARE_DRIVER_NOTE.txt` — information about the included W6300 driver
-- `src/` — required Waveshare/WIZnet W6300 driver sources
+```text
+HotButton_OSC_v1_0/
+├── HotButton_OSC_v1_0.ino
+├── WAVESHARE_DRIVER_NOTE.txt
+└── src/
+    ├── socket.c
+    ├── socket.h
+    ├── dhcp.c
+    ├── dhcp.h
+    ├── w6300.c
+    ├── w6300.h
+    └── ...
+```
 
 Keep the supplied `src` directory together with the Arduino sketch when building the firmware.
