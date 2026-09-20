@@ -1,0 +1,9 @@
+HotButton v0.6 W6300 driver files
+
+The files in src/ were copied from Waveshare's RP2350-POE-ETH Arduino
+01_MQTT example supplied by the user. ethchip_spi.c has one intentional
+HotButton adaptation: ethchip_initialize() no longer blocks forever while
+waiting for PHY link; link state is handled by the HotButton loop.
+
+USE_ONBOARD_LED in HotButton_OSC_v0_6.ino mirrors all existing LED output
+to the onboard WS2812 on GPIO25.
