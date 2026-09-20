@@ -27,6 +27,23 @@ HotButton is a network-connected physical button built around the Waveshare RP23
 - LED state, color, brightness and flash variables
 - Multiple HotButtons can share the same OSC port
 
+## HotButton Firmware
+
+This repository also contains the firmware for the physical HotButton hardware.
+
+The firmware is designed for the **Waveshare RP2350-POE-ETH** and communicates with this Companion module via OSC over Ethernet.
+
+Firmware location:
+
+`RP2350-POE-ETH-Firmware/HotButton_OSC_v1_0/`
+
+The firmware directory contains the Arduino sketch as well as the required W6300 Ethernet driver sources.
+
+> **Important:** Use the driver files included with this firmware.  
+> The included W6300 `socket.c` contains a required fix for non-blocking UDP operation. Replacing it with the unmodified Waveshare/WIZnet version may cause the HotButton to stop processing OSC traffic after startup.
+
+The firmware and Companion module included in this repository represent the tested HotButton v1.0 implementation.
+
 ## Pairing
 
 ### Learn Mode
