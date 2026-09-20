@@ -39,6 +39,30 @@ export function updateFeedbacks(self) {
       options: [],
       callback: () => self.longPressActive,
     },
+
+    led_state: {
+      name: 'LED State',
+      type: 'boolean',
+      defaultStyle: {
+        bgcolor: combineRgb(255, 255, 255),
+        color: combineRgb(0, 0, 0),
+      },
+      options: [],
+      callback: () => self.ledOn === true,
+    },
+    led_color: {
+      name: 'LED Color',
+      description: 'Sets the button background to the currently stored HotButton LED color.',
+      type: 'advanced',
+      options: [],
+      callback: () => {
+        if (self.ledRed === null || self.ledGreen === null || self.ledBlue === null) return {}
+
+        return {
+          bgcolor: combineRgb(self.ledRed, self.ledGreen, self.ledBlue),
+        }
+      },
+    },
     device_online: {
       name: 'Device Online',
       type: 'boolean',

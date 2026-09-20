@@ -8,6 +8,11 @@ export function updateVariableDefinitions(self) {
     online: { name: 'Device Online' },
     last_seen: { name: 'Last Seen' },
 
+    led_state: { name: 'LED State' },
+    led_color: { name: 'LED Color (R,G,B)' },
+    led_brightness: { name: 'LED Brightness (%)' },
+    led_flash: { name: 'LED Flash Program' },
+
     last_press_duration_ms: { name: 'Last Press Duration (ms)' },
     last_press_duration_seconds: { name: 'Last Press Duration (seconds)' },
     last_press_duration_minutes: { name: 'Last Press Duration (minutes)' },

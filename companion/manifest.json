@@ -5,18 +5,18 @@
   "name": "HotButton: OSC",
   "shortname": "HotButton",
   "description": "PoE OSC HotButton for Bitfocus Companion",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "license": "MIT",
   "repository": "https://github.com/Thomosaurus6/companion-module-hotbutton",
   "bugs": "https://github.com/Thomosaurus6/companion-module-hotbutton/issues",
   "maintainers": [
-   {
-     "name": "Thomas Thielen",
-     "email": "thomas.thielen12@gmail.com",
-     "github": "Thomosaurus6"
-   }
-   ], 
- "runtime": {
+    {
+      "name": "Thomas Thielen",
+      "email": "thomas.thielen12@gmail.com",
+      "github": "Thomosaurus6"
+    }
+  ],
+  "runtime": {
     "type": "node22",
     "api": "nodejs-ipc",
     "apiVersion": "0.0.0",
@@ -24,6 +24,13 @@
   },
   "legacyIds": [],
   "manufacturer": "Kra55k0pf",
-  "products": ["HotButton"],
-  "keywords": ["osc", "button", "poe", "rp2350"]
+  "products": [
+    "HotButton"
+  ],
+  "keywords": [
+    "osc",
+    "button",
+    "poe",
+    "rp2350"
+  ]
 }

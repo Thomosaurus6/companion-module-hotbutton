@@ -6,7 +6,7 @@ export function getConfigFields(self) {
   const deviceId = self.deviceId || cfg.deviceId || '—'
   const pairingState = self.getPairingStateLabel()
   const onlineText = self.online ? 'ONLINE' : 'OFFLINE'
-  const hasLearnedDevice = Boolean(self.deviceId || cfg.deviceId) && Boolean(cfg.learnedIp)
+  const hasLearnedDevice = self.isPaired() && Boolean(cfg.learnedIp)
 
   return [
     {

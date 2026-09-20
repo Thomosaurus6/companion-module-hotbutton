@@ -44,24 +44,24 @@ export function updateActions(self) {
           disableAutoExpression: true,
         },
         {
-          ...dynamicIntegerOption('red', 'Red', 255, 0, 255),
+          ...dynamicIntegerOption('custom_red', 'Red', 255, 0, 255),
           isVisibleExpression: "$(options:color) == 'custom'",
         },
         {
-          ...dynamicIntegerOption('green', 'Green', 0, 0, 255),
+          ...dynamicIntegerOption('custom_green', 'Green', 0, 0, 255),
           isVisibleExpression: "$(options:color) == 'custom'",
         },
         {
-          ...dynamicIntegerOption('blue', 'Blue', 0, 0, 255),
+          ...dynamicIntegerOption('custom_blue', 'Blue', 0, 0, 255),
           isVisibleExpression: "$(options:color) == 'custom'",
         },
       ],
       callback: (action) => {
         if (action.options.color === 'custom') {
           self.sendOsc('/led/custom', [
-            { type: 'i', value: self.clampInt(action.options.red, 0, 255) },
-            { type: 'i', value: self.clampInt(action.options.green, 0, 255) },
-            { type: 'i', value: self.clampInt(action.options.blue, 0, 255) },
+            { type: 'i', value: self.clampInt(action.options.custom_red, 0, 255) },
+            { type: 'i', value: self.clampInt(action.options.custom_green, 0, 255) },
+            { type: 'i', value: self.clampInt(action.options.custom_blue, 0, 255) },
           ])
         } else {
           self.sendOsc(`/led/${action.options.color}`, [])

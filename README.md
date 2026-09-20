@@ -1,363 +1,128 @@
 # HotButton
+
 **PoE-powered physical OSC button for Bitfocus Companion**
-HotButton is a network-connected physical button designed for **Bitfocus Companion**.  
-It combines a physical push button, a 24-pixel RGB LED ring and Ethernet/PoE in a standalone device that communicates with Companion using **OSC over UDP**.
-One Ethernet cable provides both **power and communication**.
-> **Status:** v0.2.0 – Development  
-> The module is functional and currently undergoing end-to-end hardware testing.
----
-## Features
-- PoE-powered standalone hardware
-- OSC over UDP
-- Manual IP configuration or automatic **Learn Mode**
-- Learn-to-Static network setup directly from the connection configuration
-- Multiple HotButtons on the same network and OSC port
+
+HotButton is a network-connected physical button built around the Waveshare RP2350-POE-ETH. One Ethernet cable provides power and communication. A custom Companion module handles pairing, button events, long-press logic, online monitoring, LED control, feedbacks and variables.
+
+> **Release:** v1.0.0 — first stable hardware-tested release
+
+## Highlights
+
+- PoE-powered RP2350/W6300 hardware
+- OSC over UDP, default port `13122`
+- One Companion connection per physical HotButton
+- Manual or Learn pairing with explicit pair/ACK handshake
+- Persistent Companion pairing and unicast operation after pairing
+- Learn-to-Static network setup from the Companion connection
+- Physical boot recovery to DHCP/unpaired mode
 - Immediate Press and Release events
 - Companion-side configurable Long Press detection
-- Press duration and press interval measurement
-- Heartbeat-based online monitoring and state synchronization
-- 24-pixel RGB LED ring control
-- Predefined colors and Custom RGB
-- 0–100 % brightness control
-- 10 flash programs plus solid output
-- LED On / Off / Toggle
-- LED Reset
-- Companion Actions, Feedbacks and Variables
----
-## How it works
-```text
-┌─────────────────────┐
-│      HotButton      │
-│                     │
-│  Physical Button    │
-│  RGB LED Ring       │
-│  RP2350 + Ethernet  │
-└──────────┬──────────┘
-           │
-           │  PoE / Ethernet
-           │  OSC over UDP
-           ▼
-┌─────────────────────┐
-│ Bitfocus Companion  │
-│                     │
-│ Actions             │
-│ Feedbacks           │
-│ Variables           │
-└─────────────────────┘
+- Press-duration and press-to-press interval variables
+- 5 s heartbeat with configurable online timeout
+- LED Color presets and Custom RGB
+- LED Brightness 0–100 %, Set/Increase/Decrease
+- LED Flash Off/Solid plus programs 1–10
+- LED On/Off/Toggle and Reset
+- LED State and dynamic LED Color feedbacks
+- LED state, color, brightness and flash variables
+- Multiple HotButtons can share the same OSC port
 
-Each Companion connection represents one physical HotButton.
+## Pairing
 
-The default OSC port is:
+### Learn Mode
 
-13122
+Create the Companion connection in **Learn** mode and press the physical HotButton. The Press is used to discover its source IP and Device ID. Companion then sends `/<deviceId>/pair`; the HotButton stores the source IP of that request as its Companion IP and replies with `/<deviceId>/pair/ack`.
 
-⸻
+After the ACK, the HotButton sends Press, Release, heartbeat and LED-state traffic by **unicast** to the stored Companion IP. Pairing survives normal HotButton power cycles.
 
-Pairing
+The connection setting **Forget current pairing and wait for next button press** only clears Companion's local learned device information. It does not erase the Companion IP stored in the HotButton.
 
-HotButton supports two connection modes.
+### Manual Mode
 
-Manual
+Enter the HotButton IP address. Companion learns/validates the Device ID from that IP and completes the same pair/ACK handshake.
 
-Enter the IP address of the HotButton manually. Companion automatically learns and validates the Device ID from traffic received from that IP.
+### Learn to Static IP
 
-The Device ID is revalidated when the module starts or the configured Manual IP changes.
+After successful Learn pairing, enter the desired IP, subnet and gateway in the connection settings and save. Companion sends the network configuration once to the current DHCP address and switches the connection to Manual mode using the new IP.
 
-Learn
+Defaults:
 
-No IP address is required.
+- Subnet: `255.255.255.0`
+- Gateway: `0.0.0.0`
 
-Create the connection in Learn Mode and press the physical HotButton. Companion automatically pairs the connection with the source IP and Device ID of that button.
+Gateway `0.0.0.0` disables gateway monitoring in the firmware; it does **not** disable the OSC heartbeat.
 
-A heartbeat alone cannot claim an unpaired connection. Pairing requires an intentional physical button press.
+### Physical Recovery
 
-The current Learn pairing can be forgotten from the connection configuration to wait for the next physical button press.
+During the first **30 seconds after boot**, hold the physical button continuously for **5 seconds** to clear the stored static network configuration and stored Companion pairing. The HotButton returns to DHCP and unpaired/broadcast discovery mode. The held button is suppressed until release so the recovery action does not create a phantom Press.
 
-Learn to Static IP
+## Button behavior
 
-After a device has been paired in Learn Mode, an optional static network configuration becomes available directly in the connection settings.
+A physical Press is reported immediately. Release is reported separately. Long Press detection runs entirely in Companion; the default threshold is 2000 ms and can be changed without reflashing the firmware.
 
-Configure:
+A Long Press does not replace the normal Press: the Press occurs first, then the Long Press event can qualify later.
 
-* IP address
-* Subnet mask
-* Gateway
+The heartbeat is primarily used for online monitoring and safety synchronization. `heartbeat = 0` can correct a missed Release; `heartbeat = 1` does not synthesize a new Press.
 
-Saving the configuration sends the static network settings once to the HotButton at its currently learned DHCP address.
+## LED control
 
-Companion then automatically switches the connection to Manual Mode using the new static IP address. The Device ID is cleared and learned again from traffic received at the new address.
+The LED configuration consists of power state, stored RGB color, brightness and flash program. Color, brightness and flash changes do not automatically turn the LED on.
 
-The default subnet mask is:
+**Actions:**
 
-255.255.255.0
+- LED Color — Red, Green, Blue, Yellow, Orange, Purple, White, Custom RGB
+- LED Brightness — Set, Increase, Decrease; 0–100 %
+- LED Flash — Off/Solid or program 1–10; 1 slowest, 10 fastest
+- LED State — On, Off, Toggle
+- LED Reset — White, 0 % brightness, Flash Off/Solid, Power Off
 
-The default gateway is:
+At boot the user LED starts in its defined reset/default state rather than restoring the previous user state. The firmware reports its current LED state to Companion so feedbacks and variables synchronize correctly.
 
-0.0.0.0
+**Feedbacks:**
 
-A gateway of 0.0.0.0 disables gateway ping monitoring in the HotButton firmware. The normal OSC heartbeat remains active.
+- Button Press Pulse
+- Long Press Event
+- Device Online
+- LED State
+- LED Color — dynamically uses the reported RGB value as the Companion button background
 
-To return a HotButton to DHCP, hold the physical button during startup for approximately 10 seconds. This clears the stored static network configuration.
+**LED variables:** `led_state`, `led_color`, `led_brightness`, `led_flash`.
 
-⸻
+## Documentation
 
-Button Events
+Detailed connection settings, actions, feedbacks, variables, OSC messages, recovery behavior and development notes are in [`companion/HELP.md`](companion/HELP.md).
 
-The physical button provides:
+## Hardware
 
-* Press
-* Release
-* Long Press
+Current reference hardware:
 
-A normal Press event is generated immediately.
+- Waveshare RP2350-POE-ETH
+- RP2350A
+- W6300 Ethernet controller
+- PoE
+- Momentary push button on GPIO0
+- Optional 24 × WS2812 LED ring on GPIO1 through a TXS0108E level shifter
+- Onboard WS2812 status/user LED on GPIO25
 
-Long Press detection is handled entirely inside Companion, so the threshold and trigger behavior can be configured without changing or reflashing the HotButton firmware.
+The external LED ring may be omitted; the onboard LED remains usable.
 
-A Long Press does not replace the normal Press event. A held button therefore generates a normal Press first and can subsequently qualify as a Long Press.
+## Development
 
-Companion also provides timing information for:
+Requirements: Node.js 22 and Yarn 4.
 
-* Last completed press duration
-* Time between consecutive Press events
-
-Timing values are available as:
-
-* Milliseconds
-* Seconds with two decimal places
-* Minutes in MM:SS.hh format
-
-⸻
-
-Heartbeat and Online Detection
-
-The HotButton periodically sends an OSC heartbeat containing the current button state.
-
-The heartbeat is used for:
-
-* Device online detection
-* Button state synchronization
-* Recovery if a UDP Release message is lost
-
-Normal Press and Release messages remain the primary source for button events.
-
-A heartbeat reporting a released button can correct a stale pressed state in Companion.
-
-A heartbeat reporting a pressed button confirms the current state but does not generate a new Press event.
-
-⸻
-
-LED Control
-
-The 24-pixel RGB LED ring can be controlled directly from Companion.
-
-Available Actions:
-
-LED Color
-
-* Predefined colors
-* Custom RGB
-
-Changing the color does not automatically switch the LED on.
-
-LED Brightness
-
-* Set
-* Increase
-* Decrease
-* Range: 0–100 %
-
-Changing brightness does not automatically switch the LED on.
-
-LED Flash
-
-Available modes:
-
-* Off
-* Program 1
-* Program 2
-* Program 3
-* Program 4
-* Program 5
-* Program 6
-* Program 7
-* Program 8
-* Program 9
-* Program 10
-
-Off selects solid output.
-
-Program 1 is the slowest flash program and Program 10 is the fastest.
-
-Changing the flash program does not automatically switch the LED on.
-
-LED State
-
-* On
-* Off
-* Toggle
-
-LED Off only disables the visible output. The configured color, brightness and flash program remain stored.
-
-LED On restores the stored state. If a flash program is active, it starts with the ON phase.
-
-LED Reset
-
-Reset returns the LED to:
-
-* White
-* 0 % brightness
-* Flash Off / Solid
-* Power Off
-
-⸻
-
-Feedbacks
-
-The module provides three Companion Feedbacks:
-
-* Button Press Pulse
-* Long Press Event
-* Device Online
-
-Button Press Pulse
-
-Generates a configurable pulse on every physical Press event.
-
-The pulse is independent of the Release event and is not shortened if the button is released before the configured pulse duration expires.
-
-Long Press Event
-
-Indicates a qualified Long Press.
-
-Depending on the connection configuration, the Long Press can trigger while the button is still held or when the button is released.
-
-Device Online
-
-True while the HotButton is considered online based on valid device traffic and the configured Online Timeout.
-
-⸻
-
-Variables
-
-The module provides variables for device information, button state, pairing, online status and timing.
-
-Current variables include:
-
-device_id
-device_ip
-button_state
-last_event
-pairing_state
-online
-last_seen
-last_press_duration_ms
-last_press_duration_seconds
-last_press_duration_minutes
-last_press_interval_ms
-last_press_interval_seconds
-last_press_interval_minutes
-
-The _ms variables contain integer milliseconds.
-
-The _seconds variables contain seconds with two decimal places.
-
-The _minutes variables use:
-
-MM:SS.hh
-
-Minutes are not limited to 59.
-
-⸻
-
-Companion Integration
-
-The module provides dedicated:
-
-* Actions for LED control
-* Feedbacks for Press, Long Press and online status
-* Variables for device information, button state, pairing and timing data
-* Connection configuration for Manual/Learn pairing, Long Press behavior, communication settings and Learn-to-Static network setup
-
-For a complete description of all connection settings, Actions, Feedbacks, Variables and OSC commands, see:
-
-companion/HELP.md
-
-⸻
-
-Hardware
-
-Current HotButton hardware is based on:
-
-* Waveshare RP2350-POE-ETH
-* RP2350A microcontroller
-* W6300 Ethernet controller
-* Power over Ethernet
-* Physical momentary push button
-* 24 × WS2812 RGB LED ring
-* TXS0108E level shifter for the LED data signal
-
-Communication with Companion uses OSC over UDP.
-
-⸻
-
-Development
-
-Requirements:
-
-Node.js 22
-Yarn 4
-
-Install dependencies:
-
+```bash
 yarn install
-
-Validate and build the Companion module:
-
 yarn package
+```
 
-The module can be loaded directly through Companion’s Developer Modules functionality during development.
+A successful package build creates `kra55k0pf-hotbutton-1.0.0.tgz`.
 
-Repository:
+## v1.0.0
 
-https://github.com/Thomosaurus6/companion-module-hotbutton
+First stable release after end-to-end hardware testing. The release includes persistent unicast pairing, DHCP/static setup and recovery, button/long-press handling, heartbeat/online state, complete LED control, LED feedback synchronization, timing variables and reduced Companion status-log noise.
 
-Issues:
-
-https://github.com/Thomosaurus6/companion-module-hotbutton/issues
-
-⸻
-
-Project Status
-
-Current version:
-
-v0.2.0 – Development
-
-Implemented:
-
-* Manual and Learn pairing
-* Learn-to-Static network setup
-* Press / Release
-* Companion-side Long Press detection
-* Press duration and interval timing
-* Heartbeat and online detection
-* LED Color
-* LED Brightness
-* LED Flash
-* LED State On / Off / Toggle
-* LED Reset
-* Feedbacks and Variables
-* Multiple HotButton instances on the same network and OSC port
-
-Full end-to-end testing with the current HotButton firmware and physical hardware is in progress.
-
-⸻
-
-License
+## License
 
 MIT
 
-Maintainer
-
-Thomas Thielen
-GitHub: Thomosaurus6
+Maintainer: Thomas Thielen / Thomosaurus6

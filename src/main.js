@@ -8,6 +8,8 @@ const DEFAULT_PORT = 13122
 const DEFAULT_TIMEOUT = 20000
 const DEFAULT_LONG_PRESS_MS = 2000
 const RELEASE_LONG_PRESS_PULSE_MS = 1000
+const PAIR_RETRY_MS = 1000
+const PAIR_MAX_ATTEMPTS = 5
 
 class HotButtonInstance extends InstanceBase {
   constructor(internal) {
@@ -35,6 +37,26 @@ class HotButtonInstance extends InstanceBase {
 
     this.statusTimer = null
     this.feedbackTimer = null
+
+    this.pairingConfirmed = false
+    this.pairingInProgress = false
+    this.pairingIp = ''
+    this.pairingDeviceId = ''
+    this.pairingAttempts = 0
+    this.pairingRetryTimer = null
+
+    // LED state reported by the HotButton. null means not synchronized yet.
+    this.ledOn = null
+    this.ledRed = null
+    this.ledGreen = null
+    this.ledBlue = null
+    this.ledBrightness = null
+    this.ledFlash = null
+
+    // Avoid flooding Companion's log by calling updateStatus with the same
+    // status/message for every received OSC packet.
+    this.lastReportedStatus = null
+    this.lastReportedStatusMessage = null
   }
 
   async init(config, _isFirstInit, _secrets) {
@@ -58,11 +80,18 @@ class HotButtonInstance extends InstanceBase {
     this.restartSocket()
     this.startTimers()
     this.refreshStatus()
+
+    // Re-confirm persisted pairings after every module start. The HotButton
+    // answers /pair with /pair/ack and refreshes the same Companion IP.
+    if (this.getTargetIp() && this.deviceId) {
+      this.beginPairing(this.getTargetIp(), this.deviceId)
+    }
   }
 
   async destroy() {
     this.stopTimers()
     this.clearLongPressTimers()
+    this.clearPairingRetry()
     this.closeSocket()
   }
 
@@ -156,7 +185,7 @@ class HotButtonInstance extends InstanceBase {
       this.deviceId = ''
       this.resetRuntimeDeviceState()
 
-      this.log('info', 'Pairing cleared. Waiting for next physical HotButton press.')
+      this.log('info', 'Local device discovery cleared. HotButton Companion pairing is retained; waiting for next physical press.')
       this.saveConfig({ ...next })
     }
 
@@ -187,6 +216,8 @@ class HotButtonInstance extends InstanceBase {
       'device_online',
       'button_press_pulse',
       'button_long_press',
+      'led_state',
+      'led_color',
     )
     this.refreshStatus()
   }
@@ -231,7 +262,21 @@ class HotButtonInstance extends InstanceBase {
     this.longPressQualified = false
     this.longPressActive = false
 
+    this.pairingConfirmed = false
+    this.clearPairingRetry()
+    this.pairingInProgress = false
+    this.pairingIp = ''
+    this.pairingDeviceId = ''
+    this.pairingAttempts = 0
+
     this.clearLongPressTimers()
+
+    this.ledOn = null
+    this.ledRed = null
+    this.ledGreen = null
+    this.ledBlue = null
+    this.ledBrightness = null
+    this.ledFlash = null
   }
 
   getTargetIp() {
@@ -242,41 +287,119 @@ class HotButtonInstance extends InstanceBase {
 
   isPaired() {
     return Boolean(
-      this.getTargetIp() &&
+      this.pairingConfirmed &&
+        this.getTargetIp() &&
         (this.deviceId || this.config.deviceId),
     )
   }
 
   getPairingStateLabel() {
+    if (this.pairingInProgress) return 'PAIRING'
+
     if (this.config?.pairingMode === 'learn') {
-      return this.isPaired()
-        ? 'PAIRED'
-        : 'WAITING FOR BUTTON'
+      return this.isPaired() ? 'PAIRED' : 'WAITING FOR BUTTON'
     }
 
-    if (!this.config?.manualIp) {
-      return 'WAITING FOR IP'
-    }
-
-    return this.deviceId
-      ? 'PAIRED'
-      : 'WAITING FOR DEVICE ID'
+    if (!this.config?.manualIp) return 'WAITING FOR IP'
+    return this.isPaired() ? 'PAIRED' : (this.deviceId ? 'PAIRING' : 'WAITING FOR DEVICE ID')
   }
 
   getPairingStateVariable() {
+    if (this.pairingInProgress) return 'pairing'
+
     if (this.config?.pairingMode === 'learn') {
-      return this.isPaired()
-        ? 'paired'
-        : 'waiting_for_button'
+      return this.isPaired() ? 'paired' : 'waiting_for_button'
     }
 
-    if (!this.config?.manualIp) {
-      return 'waiting_for_ip'
+    if (!this.config?.manualIp) return 'waiting_for_ip'
+    return this.isPaired() ? 'paired' : (this.deviceId ? 'pairing' : 'waiting_for_device_id')
+  }
+
+  clearPairingRetry() {
+    if (this.pairingRetryTimer) clearTimeout(this.pairingRetryTimer)
+    this.pairingRetryTimer = null
+
+    // LED state reported by the HotButton. null means not synchronized yet.
+    this.ledOn = null
+    this.ledRed = null
+    this.ledGreen = null
+    this.ledBlue = null
+    this.ledBrightness = null
+    this.ledFlash = null
+
+    // Avoid flooding Companion's log by calling updateStatus with the same
+    // status/message for every received OSC packet.
+    this.lastReportedStatus = null
+    this.lastReportedStatusMessage = null
+  }
+
+  beginPairing(ip, deviceId) {
+    if (!ip || !deviceId) return
+
+    this.clearPairingRetry()
+    this.pairingConfirmed = false
+    this.pairingInProgress = true
+    this.pairingIp = ip
+    this.pairingDeviceId = deviceId
+    this.pairingAttempts = 0
+    this.sendPairAttempt()
+    this.updateVariables()
+    this.refreshStatus()
+  }
+
+  sendPairAttempt() {
+    if (!this.pairingInProgress || !this.pairingIp || !this.pairingDeviceId) return
+
+    if (this.pairingAttempts >= PAIR_MAX_ATTEMPTS) {
+      this.pairingInProgress = false
+      this.clearPairingRetry()
+      this.log('warn', `Pairing confirmation timed out for ${this.pairingDeviceId} at ${this.pairingIp}. Waiting for new device traffic.`)
+      this.updateVariables()
+      this.refreshStatus()
+      return
     }
 
-    return this.deviceId
-      ? 'paired'
-      : 'waiting_for_device_id'
+    this.pairingAttempts += 1
+    this.oscSend(
+      this.pairingIp,
+      Number(this.config.oscPort || DEFAULT_PORT),
+      `/${this.pairingDeviceId}/pair`,
+      [],
+    )
+
+    this.clearPairingRetry()
+    this.pairingRetryTimer = setTimeout(() => this.sendPairAttempt(), PAIR_RETRY_MS)
+  }
+
+  handlePairAck(sourceIp, deviceId) {
+    if (
+      !this.pairingInProgress ||
+      sourceIp !== this.pairingIp ||
+      deviceId !== this.pairingDeviceId
+    ) return false
+
+    this.clearPairingRetry()
+    this.pairingInProgress = false
+    this.pairingConfirmed = true
+    this.pairingAttempts = 0
+
+    this.config.deviceId = deviceId
+    this.deviceId = deviceId
+    if (this.config.pairingMode === 'learn') this.config.learnedIp = sourceIp
+    this.saveConfig({ ...this.config })
+
+    this.lastSeenAt = Date.now()
+    this.online = true
+    this.log('info', `Paired with ${deviceId} at ${sourceIp}; HotButton confirmed Unicast mode.`)
+
+    // The firmware also pushes a snapshot after pair/ack. Request it once
+    // explicitly as well so Companion always starts from authoritative state.
+    this.sendOsc('/led/state/get', [])
+
+    this.updateVariables('pair_ack')
+    this.checkFeedbacks('device_online')
+    this.refreshStatus()
+    return true
   }
 
   formatSeconds(ms) {
@@ -326,6 +449,20 @@ class HotButtonInstance extends InstanceBase {
         this.lastSeenAt
           ? new Date(this.lastSeenAt).toISOString()
           : '',
+
+      led_state:
+        this.ledOn === null ? '' : (this.ledOn ? 'On' : 'Off'),
+
+      led_color:
+        this.ledRed === null || this.ledGreen === null || this.ledBlue === null
+          ? ''
+          : `${this.ledRed},${this.ledGreen},${this.ledBlue}`,
+
+      led_brightness:
+        this.ledBrightness === null ? '' : this.ledBrightness,
+
+      led_flash:
+        this.ledFlash === null ? '' : (this.ledFlash === 0 ? 'Off' : this.ledFlash),
 
       last_press_duration_ms:
         this.lastPressDurationMs,
@@ -432,6 +569,26 @@ class HotButtonInstance extends InstanceBase {
 
     this.statusTimer = null
     this.feedbackTimer = null
+
+    this.pairingConfirmed = false
+    this.pairingInProgress = false
+    this.pairingIp = ''
+    this.pairingDeviceId = ''
+    this.pairingAttempts = 0
+    this.pairingRetryTimer = null
+
+    // LED state reported by the HotButton. null means not synchronized yet.
+    this.ledOn = null
+    this.ledRed = null
+    this.ledGreen = null
+    this.ledBlue = null
+    this.ledBrightness = null
+    this.ledFlash = null
+
+    // Avoid flooding Companion's log by calling updateStatus with the same
+    // status/message for every received OSC packet.
+    this.lastReportedStatus = null
+    this.lastReportedStatusMessage = null
   }
 
   clearLongPressTimers() {
@@ -486,7 +643,7 @@ class HotButtonInstance extends InstanceBase {
       this.config.pairingMode === 'manual' &&
       !this.config.manualIp
     ) {
-      this.updateStatus(
+      this.setStatusIfChanged(
         InstanceStatus.BadConfig,
         'Manual mode: enter HotButton IP address',
       )
@@ -494,7 +651,7 @@ class HotButtonInstance extends InstanceBase {
     }
 
     if (!this.isPaired()) {
-      this.updateStatus(
+      this.setStatusIfChanged(
         InstanceStatus.Connecting,
         this.getPairingStateLabel(),
       )
@@ -502,16 +659,25 @@ class HotButtonInstance extends InstanceBase {
     }
 
     if (this.online) {
-      this.updateStatus(
+      this.setStatusIfChanged(
         InstanceStatus.Ok,
         `${this.deviceId} @ ${this.getTargetIp()}`,
       )
     } else {
-      this.updateStatus(
+      this.setStatusIfChanged(
         InstanceStatus.Disconnected,
         `${this.deviceId} @ ${this.getTargetIp()} — heartbeat timeout`,
       )
     }
+  }
+
+
+  setStatusIfChanged(status, message) {
+    if (this.lastReportedStatus === status && this.lastReportedStatusMessage === message) return
+
+    this.lastReportedStatus = status
+    this.lastReportedStatusMessage = message
+    this.updateStatus(status, message)
   }
 
   parseOscMessage(buffer) {
@@ -609,8 +775,8 @@ class HotButtonInstance extends InstanceBase {
 
         pos += 4
       } else {
-        // Inbound HotButton traffic currently only needs
-        // integer heartbeat args.
+        // HotButton inbound protocol currently uses integer arguments
+        // for heartbeat and all LED state messages.
         return null
       }
     }
@@ -643,161 +809,98 @@ class HotButtonInstance extends InstanceBase {
       )
 
     if (match) {
-      return {
-        deviceId:
-          match[1],
-        event:
-          'heartbeat',
-      }
+      return { deviceId: match[1], event: 'heartbeat' }
     }
+
+    match = address.match(/^\/(hotbutton_[^/]+)\/pair\/ack$/)
+    if (match) {
+      return { deviceId: match[1], event: 'pair_ack' }
+    }
+
+    match = address.match(/^\/(hotbutton_[^/]+)\/led\/state$/)
+    if (match) return { deviceId: match[1], event: 'led_state' }
+
+    match = address.match(/^\/(hotbutton_[^/]+)\/led\/color$/)
+    if (match) return { deviceId: match[1], event: 'led_color' }
+
+    match = address.match(/^\/(hotbutton_[^/]+)\/led\/brightness\/state$/)
+    if (match) return { deviceId: match[1], event: 'led_brightness' }
+
+    match = address.match(/^\/(hotbutton_[^/]+)\/led\/flash\/state$/)
+    if (match) return { deviceId: match[1], event: 'led_flash' }
 
     return null
   }
 
   handleUdpMessage(message, rinfo) {
-    const osc =
-      this.parseOscMessage(
-        message,
-      )
+    const sourceIp = rinfo.address
+    const osc = this.parseOscMessage(message)
+    if (!osc) return
 
-    if (!osc) {
+    const parsed = this.parseHotButtonAddress(osc.address)
+    if (!parsed) return
+
+    if (parsed.event === 'pair_ack') {
+      this.handlePairAck(sourceIp, parsed.deviceId)
       return
     }
 
-    const parsed =
-      this.parseHotButtonAddress(
-        osc.address,
-      )
+    if (this.config.pairingMode === 'learn' && !this.isPaired()) {
+      // Only a physical press may discover/re-learn a HotButton in Learn mode.
+      if (parsed.event !== 'press') return
 
-    if (!parsed) {
+      // If a retry cycle already timed out, the next physical press starts it again.
+      if (!this.pairingInProgress) {
+        this.config.learnedIp = sourceIp
+        this.config.deviceId = parsed.deviceId
+        this.config.relearn = false
+        this.deviceId = parsed.deviceId
+        this.saveConfig({ ...this.config })
+        this.beginPairing(sourceIp, parsed.deviceId)
+      }
       return
     }
 
-    const sourceIp =
-      rinfo.address
+    if (this.config.pairingMode === 'manual' && this.config.manualIp && !this.isPaired()) {
+      if (sourceIp !== this.config.manualIp) return
 
-    if (
-      this.config.pairingMode === 'learn' &&
-      !this.isPaired()
-    ) {
-      // Intentional physical pairing:
-      // heartbeat/release alone never claims
-      // a Learn-mode instance.
-      if (
-        parsed.event !== 'press'
-      ) {
-        return
+      if (!this.deviceId) {
+        this.deviceId = parsed.deviceId
+        this.config.deviceId = parsed.deviceId
+        this.saveConfig({ ...this.config })
       }
 
-      this.config.learnedIp =
-        sourceIp
-
-      this.config.deviceId =
-        parsed.deviceId
-
-      this.config.relearn =
-        false
-
-      this.deviceId =
-        parsed.deviceId
-
-      this.saveConfig({
-        ...this.config,
-      })
-
-      this.log(
-        'info',
-        `Paired ${parsed.deviceId} at ${sourceIp}`,
-      )
-    } else if (
-      this.config.pairingMode === 'manual' &&
-      this.config.manualIp &&
-      !this.deviceId
-    ) {
-      // Manual mode knows the IP.
-      // Any valid HotButton heartbeat/button packet from that
-      // exact IP validates and refreshes the Device ID.
-      if (
-        sourceIp !==
-        this.config.manualIp
-      ) {
-        return
-      }
-
-      this.deviceId =
-        parsed.deviceId
-
-      this.config.deviceId =
-        parsed.deviceId
-
-      this.saveConfig({
-        ...this.config,
-      })
-
-      this.log(
-        'info',
-        `Learned Device ID ${parsed.deviceId} from manual IP ${sourceIp}`,
-      )
-    }
-
-    const targetIp =
-      this.getTargetIp()
-
-    const expectedId =
-      this.deviceId ||
-      this.config.deviceId
-
-    if (
-      !targetIp ||
-      !expectedId
-    ) {
+      if (parsed.deviceId !== this.deviceId) return
+      if (!this.pairingInProgress) this.beginPairing(sourceIp, parsed.deviceId)
       return
     }
 
-    if (
-      sourceIp !== targetIp ||
-      parsed.deviceId !== expectedId
-    ) {
-      return
-    }
+    const targetIp = this.getTargetIp()
+    const expectedId = this.deviceId || this.config.deviceId
+    if (!this.isPaired() || !targetIp || !expectedId) return
+    if (sourceIp !== targetIp || parsed.deviceId !== expectedId) return
 
-    this.lastSeenAt =
-      Date.now()
-
+    this.lastSeenAt = Date.now()
     if (!this.online) {
       this.online = true
-
-      this.checkFeedbacks(
-        'device_online',
-      )
+      this.checkFeedbacks('device_online')
     }
 
-    if (
-      parsed.event === 'press'
-    ) {
+    if (parsed.event === 'press') {
       this.handlePressEvent()
-    } else if (
-      parsed.event === 'release'
-    ) {
+    } else if (parsed.event === 'release') {
       this.handleReleaseEvent()
-    } else {
+    } else if (parsed.event === 'heartbeat') {
       const heartbeatState =
-        osc.args.length === 1 &&
-        osc.args[0].type === 'i'
-          ? Number(
-              osc.args[0].value,
-            )
+        osc.args.length === 1 && osc.args[0].type === 'i'
+          ? Number(osc.args[0].value)
           : null
-
-      this.handleHeartbeatEvent(
-        heartbeatState,
-      )
+      this.handleHeartbeatEvent(heartbeatState)
+    } else {
+      this.handleLedStateEvent(parsed.event, osc.args)
     }
 
-    this.checkFeedbacks(
-      'device_online',
-    )
-
+    this.checkFeedbacks('device_online')
     this.refreshStatus()
   }
 
@@ -1068,6 +1171,38 @@ class HotButtonInstance extends InstanceBase {
     this.updateVariables(
       'heartbeat',
     )
+  }
+
+
+  handleLedStateEvent(event, args) {
+    const ints = args.every((arg) => arg.type === 'i') ? args.map((arg) => Number(arg.value)) : []
+
+    if (event === 'led_state' && ints.length === 1) {
+      this.ledOn = ints[0] !== 0
+      this.updateVariables('led_state')
+      this.checkFeedbacks('led_state')
+      return
+    }
+
+    if (event === 'led_color' && ints.length === 3) {
+      this.ledRed = this.clampInt(ints[0], 0, 255)
+      this.ledGreen = this.clampInt(ints[1], 0, 255)
+      this.ledBlue = this.clampInt(ints[2], 0, 255)
+      this.updateVariables('led_color')
+      this.checkFeedbacks('led_color')
+      return
+    }
+
+    if (event === 'led_brightness' && ints.length === 1) {
+      this.ledBrightness = this.clampInt(ints[0], 0, 100)
+      this.updateVariables('led_brightness')
+      return
+    }
+
+    if (event === 'led_flash' && ints.length === 1) {
+      this.ledFlash = this.clampInt(ints[0], 0, 10)
+      this.updateVariables('led_flash')
+    }
   }
 
   sendOsc(suffix, args = []) {

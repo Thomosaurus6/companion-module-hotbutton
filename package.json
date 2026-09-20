@@ -1,6 +1,6 @@
 {
   "name": "companion-module-kra55k0pf-hotbutton",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "main": "src/main.js",
   "type": "module",
   "scripts": {
