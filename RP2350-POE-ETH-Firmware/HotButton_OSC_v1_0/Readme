@@ -1,0 +1,103 @@
+# HotButton Firmware
+
+Firmware for the HotButton PoE network button based on the **Waveshare RP2350-POE-ETH**.
+
+## Current Version
+
+HotButton Firmware v1.0
+
+Arduino sketch:
+
+`HotButton_OSC_v1_0/HotButton_OSC_v1_0.ino`
+
+## Hardware
+
+- Waveshare RP2350-POE-ETH
+- RP2350A
+- W6300 Ethernet controller
+- PoE powered
+- Button connected between GPIO0 and GND
+- External WS2812 LED output on GPIO1
+- Onboard WS2812 status LED on GPIO25
+
+The external WS2812 LED is optional. The firmware also operates without an LED connected to GPIO1.
+
+## Ethernet / W6300
+
+The firmware uses the Waveshare/WIZnet W6300 driver sources included in the `src` directory.
+
+Do not replace these files with the unmodified Waveshare/WIZnet driver without reviewing the changes.
+
+The included `socket.c` contains an important fix for non-blocking socket operation. Without this fix, the OSC UDP receive loop can block after startup and prevent further button, heartbeat and OSC processing.
+
+## Network Behaviour
+
+On first startup the HotButton uses DHCP.
+
+The device supports:
+
+- DHCP operation
+- Static IPv4 configuration from Companion
+- Persistent Companion pairing
+- OSC communication over UDP
+- Broadcast discovery while unpaired
+- Unicast communication after pairing
+- Heartbeat messages
+- Physical DHCP/pairing recovery
+
+### Recovery
+
+During the first 30 seconds after boot, holding the physical button for 5 seconds clears:
+
+- the stored static network configuration
+- the stored Companion pairing
+
+The HotButton then returns to DHCP and unpaired/broadcast operation.
+
+This recovery function is intentionally unavailable after the initial 30-second boot window.
+
+## OSC
+
+Default OSC UDP port:
+
+`13122`
+
+Button events:
+
+- `/<device-id>_press`
+- `/<device-id>_release`
+
+The firmware also supports heartbeat, pairing, LED control, LED state synchronization and static network configuration used by the accompanying Companion module.
+
+## LED
+
+The firmware supports:
+
+- RGB color
+- Brightness
+- On / Off / Toggle
+- Flash programs 1–10
+- LED reset
+- LED state synchronization with Companion
+
+The normal boot state is initialized rather than restored from previous operation.
+
+After startup, the firmware reports the initialized LED state to Companion so that Companion feedbacks and variables reflect the actual hardware state.
+
+## Serial Debugging
+
+Serial debug output can be enabled in the Arduino sketch using:
+
+`debug_serial = true`
+
+For normal operation:
+
+`debug_serial = false`
+
+## Companion
+
+The corresponding Bitfocus Companion module is contained in the root of this repository.
+
+The Companion module handles discovery, pairing, long-press detection, LED control, feedbacks, variables and network configuration.
+
+Firmware v1.0 and the Companion v1.0 implementation in this repository were developed and tested together.
