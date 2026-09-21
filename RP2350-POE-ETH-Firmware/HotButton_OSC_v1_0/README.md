@@ -1,10 +1,8 @@
 # HotButton Firmware
 
-Firmware for the **HotButton PoE network button**, based on the **Waveshare RP2350-POE-ETH**.
-
-This firmware is designed to work together with the HotButton module for **Bitfocus Companion** contained in this repository.
-
----
+Firmware for the **HotButton PoE network button**, based on the
+**Waveshare RP2350-POE-ETH** and designed for the matching Bitfocus
+Companion module.
 
 ## Version
 
@@ -14,168 +12,197 @@ Arduino sketch: `HotButton_OSC_v1_0.ino`
 
 ## Hardware
 
-| Component | Configuration |
-| --- | --- |
-| Controller | Waveshare RP2350-POE-ETH |
-| MCU | RP2350A |
-| Ethernet | WIZnet W6300 |
-| Power | PoE |
-| Button | GPIO0 → GND |
-| External WS2812 | GPIO1 |
-| Onboard WS2812 | GPIO25 |
+  Component         Configuration
+  ----------------- --------------------------
+  Controller        Waveshare RP2350-POE-ETH
+  MCU               RP2350A
+  Ethernet          WIZnet W6300
+  Power             PoE
+  Button            GPIO0 → GND
+  External WS2812   GPIO1
+  Onboard WS2812    GPIO25
 
-The external WS2812 LED is optional. The HotButton operates normally without an LED connected to GPIO1.
+The external WS2812 is optional.
 
 ## Features
 
-- DHCP and static IPv4 operation
-- Persistent Companion pairing
-- Broadcast discovery while unpaired
-- Unicast OSC communication after pairing
-- Physical Press and Release events
-- Heartbeat / online monitoring
-- Companion-controlled RGB LED
-- LED brightness and flash programs
-- LED state synchronization
-- Physical network and pairing recovery
-- Optional serial debugging
+-   DHCP and persistent static IPv4 configuration
+-   Temporary DHCP fallback at `192.168.1.10/24`
+-   HTTP network setup interface on port 80
+-   Configurable Companion unicast IP through the web interface
+-   Persistent Companion pairing
+-   Broadcast discovery while unpaired
+-   Unicast OSC after pairing
+-   Physical Press and Release events
+-   5-second heartbeat
+-   Companion-controlled RGB LED
+-   LED brightness, flash and state synchronization
+-   Physical network/pairing recovery
+-   Optional serial debugging
 
-Long-press detection is intentionally handled by the **Companion module**, not by the firmware.
+Long-press detection is handled by Companion, not by the firmware.
 
-## Ethernet / W6300 Driver
+## Ethernet / W6300 driver
 
-The firmware uses the Waveshare/WIZnet W6300 driver sources included in the local `src` directory.
+The firmware uses the Waveshare/WIZnet W6300 sources included in the
+local `src` directory.
 
-> **Important:** Do not replace the included W6300 driver files with the unmodified Waveshare/WIZnet versions without reviewing the changes.
->
-> The included `socket.c` contains a required fix for **non-blocking UDP socket operation**. Without this fix, the OSC receive loop can block after startup and prevent further button, heartbeat and OSC processing.
+> **Important:** The included `socket.c` contains a required correction
+> for non-blocking socket operation. Do not replace the driver directory
+> with an unmodified upstream copy without reviewing this fix.
 
-The required driver files are included with the firmware so that the tested v1.0 implementation remains self-contained.
+## Network behavior
 
-## Network Behaviour
+### DHCP
 
-### First Start
+Without a stored static configuration, the HotButton starts in DHCP
+mode.
 
-The HotButton initially starts using **DHCP**.
+If no DHCP lease is obtained after **60 seconds**, the firmware
+activates a temporary fallback:
 
-While the device is unpaired, OSC discovery traffic is sent using directed broadcast. After successful pairing with Companion, the Companion IP address is stored persistently and normal communication switches to **unicast UDP**.
+-   IP: `192.168.1.10`
+-   Subnet: `255.255.255.0`
+-   Gateway: `0.0.0.0`
 
-Pairing therefore survives a normal HotButton reboot or power cycle.
+The fallback is not written to flash. A later reboot therefore starts
+with DHCP again unless a static configuration has been deliberately
+stored.
+
+### Fallback setup
+
+When the fallback becomes active, the onboard status LED blinks **orange
+for 7 seconds**.
+
+Connect a computer to the same network and assign it an address in
+`192.168.1.0/24`, for example:
+
+-   Computer: `192.168.1.20`
+-   Subnet: `255.255.255.0`
+
+Then open:
+
+`http://192.168.1.10`
+
+Use the web interface to configure the final network settings.
 
 ### Static IP
 
-A static IPv4 configuration can be sent from the Companion module. Supported parameters are:
+A static IPv4 configuration can be stored through either the Companion
+network configuration workflow or the web interface.
 
-- IP address
-- Subnet mask
-- Gateway
+Supported settings:
 
-A gateway of `0.0.0.0` disables gateway monitoring.
+-   IP address
+-   Subnet mask
+-   Gateway
 
-Changing the HotButton's own IP configuration does **not** clear its stored Companion pairing.
+## Web network setup
 
-## Physical Recovery
+A small HTTP server runs on **TCP port 80** whenever the HotButton has a
+usable IP.
 
-A network and pairing recovery is available during the **first 30 seconds after boot**.
+Open the current HotButton IP in a browser. The page displays:
 
-Hold the physical button continuously for **5 seconds** during this window.
+-   current IP
+-   subnet
+-   gateway
+-   network mode
+-   current Companion IP / broadcast state
 
-This clears:
+The page allows editing:
 
-- Stored static network configuration
-- Stored Companion pairing
+-   DHCP or Static mode
+-   HotButton IP address
+-   subnet mask
+-   gateway
+-   Companion unicast IP
 
-The HotButton then returns to **DHCP**, an **unpaired state**, and **broadcast discovery**.
+Press **Save & Restart Network** to store the selected settings and
+restart the network interface.
 
-After the initial 30-second boot window, the recovery function is disabled until the next reboot. Normal button operation continues unaffected.
+For Companion IP:
 
-This is intentionally **not a full factory reset** of unrelated settings.
+-   enter the desired IPv4 address to store it as the unicast
+    destination
+-   enter `0.0.0.0` to clear the stored Companion IP and return OSC
+    transmission to broadcast discovery
 
-## OSC Communication
+There is currently no mDNS hostname such as `hotbutton.local`; access
+the interface by IP address.
 
-Default UDP port: **13122**
+## Pairing and OSC routing
 
-### Button Events
+While unpaired, outgoing OSC discovery/button traffic uses directed
+broadcast.
 
-- `/<device-id>_press`
-- `/<device-id>_release`
+After a successful Companion pair/ACK handshake, the HotButton stores
+the Companion source IP and sends normal traffic by **unicast** to that
+address. Pairing survives normal power cycles.
 
-The firmware additionally implements OSC messages for:
+The web interface can also directly set or clear the stored Companion
+unicast IP.
 
-- Heartbeat
-- Pairing and pairing acknowledgement
-- LED control
-- LED state synchronization
-- Static network configuration
+Default OSC UDP port: **13122**.
 
-The corresponding protocol handling is implemented by the HotButton Companion module.
+## Physical recovery
 
-## LED Control
+Recovery is available only during the first **30 seconds after boot**.
 
-The firmware supports both the optional external WS2812 and the onboard status LED.
+Hold the physical button for **5 seconds**. The firmware clears:
 
-Available Companion controls include:
+-   stored static network configuration
+-   stored Companion pairing/IP
 
-- RGB color
-- Brightness
-- On / Off / Toggle
-- Flash programs 1–10
-- LED reset
+Successful reset recognition is indicated by **fast red blinking for 3
+seconds**. The button may then be released.
 
-The firmware also reports the current LED state back to Companion.
+The HotButton returns to DHCP and broadcast/unpaired operation. If DHCP
+remains unavailable, the 60-second fallback is used.
 
-### Startup State
+## Status LED
 
-LED settings are **not restored from previous operation**. At every normal boot, the firmware initializes a defined default state:
+During startup/network acquisition:
 
-| Setting | Default |
-| --- | --- |
-| State | Off |
-| Color | White (`255,255,255`) |
-| Flash | Off / Solid |
+-   **Red blinking:** no usable IP
+-   **Green blinking for 7 seconds:** normal network configuration ready
+-   **Orange blinking for 7 seconds:** fallback `192.168.1.10` active
+-   **Fast red blinking for 3 seconds:** physical recovery accepted
 
-During startup, the onboard LED may temporarily display network/status information.
+After the status indication, the LED returns to normal user-controlled
+behavior.
 
-After the startup sequence has completed, the initialized LED state is sent to Companion so that Companion feedbacks and variables match the actual HotButton state.
+## User LED defaults
 
-## Serial Debugging
+LED settings are not restored from previous operation. At boot:
 
-Serial debug output is controlled centrally in the Arduino sketch.
+  Setting   Default
+  --------- -----------------------
+  State     Off
+  Color     White (`255,255,255`)
+  Flash     Off / Solid
+
+The initialized state is reported to Companion after startup.
+
+## Serial debugging
 
 Normal operation:
 
-```cpp
+``` cpp
 static const bool debug_serial = false;
 ```
 
-Enable diagnostic serial output:
+For diagnostics:
 
-```cpp
+``` cpp
 static const bool debug_serial = true;
 ```
 
-When debugging is disabled, normal serial diagnostic output is suppressed.
+Serial speed: **115200 baud**.
 
-## Companion Module
+## Firmware structure
 
-The corresponding **Bitfocus Companion HotButton module** is located in the root of this repository.
-
-Companion handles:
-
-- Manual and Learn pairing modes
-- Pair / ACK handshake
-- Device online state
-- Long-press detection
-- LED actions
-- LED feedbacks
-- Variables
-- Static network configuration
-
-The firmware and Companion module contained in this repository were developed and hardware-tested together as the **HotButton v1.0 implementation**.
-
-## Firmware Structure
-
-```text
+``` text
 HotButton_OSC_v1_0/
 ├── HotButton_OSC_v1_0.ino
 ├── WAVESHARE_DRIVER_NOTE.txt
@@ -189,4 +216,4 @@ HotButton_OSC_v1_0/
     └── ...
 ```
 
-Keep the supplied `src` directory together with the Arduino sketch when building the firmware.
+Keep the supplied `src` directory together with the Arduino sketch.

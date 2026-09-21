@@ -320,6 +320,10 @@ constexpr FlashProgram FLASH_PROGRAMS[10] = {
 constexpr uint32_t DHCP_FAST_RETRY_MS = 10000;
 constexpr uint8_t  DHCP_FAST_RETRIES  = 3;
 constexpr uint32_t DHCP_SLOW_RETRY_MS = 120000;
+constexpr uint32_t DHCP_FALLBACK_TIMEOUT_MS = 60000;
+const IPAddress DHCP_FALLBACK_IP(192, 168, 1, 10);
+const IPAddress DHCP_FALLBACK_SUBNET(255, 255, 255, 0);
+const IPAddress DHCP_FALLBACK_GATEWAY(0, 0, 0, 0);
 
 constexpr uint32_t NETWORK_CHECK_INTERVAL_MS = 5000;
 constexpr uint8_t  NETWORK_FAIL_LIMIT        = 3;
@@ -345,6 +349,9 @@ constexpr uint32_t ERROR_RED_OFF_MS = 1000;
 constexpr uint32_t READY_GREEN_ON_MS  = 500;
 constexpr uint32_t READY_GREEN_OFF_MS = 1000;
 constexpr uint32_t READY_DURATION_MS  = 5000;
+constexpr uint32_t FALLBACK_DURATION_MS = 7000;
+constexpr uint32_t RESET_CONFIRM_DURATION_MS = 3000;
+constexpr uint32_t RESET_CONFIRM_BLINK_MS = 100;
 
 
 // ---------------- OSC BUFFER ----------------
@@ -374,12 +381,17 @@ constexpr size_t OSC_RX_BUFFER_SIZE = 384;
 // Socket 0 is reserved for DHCP; socket 1 is the OSC UDP listener.
 constexpr uint8_t DHCP_SOCKET = 0;
 constexpr uint8_t OSC_SOCKET  = 1;
+constexpr uint8_t HTTP_SOCKET = 2;
+constexpr uint16_t HTTP_PORT = 80;
 
 uint8_t dhcpBuffer[2048] = {0};
 eth_NetInfo netInfo = {};
 
 bool dhcpActive = false;
 bool dhcpLeaseReady = false;
+bool dhcpFallbackActive = false;
+bool dhcpFallbackTimerActive = false;
+uint32_t dhcpFallbackStartedMs = 0;
 uint32_t lastDhcpTickMs = 0;
 
 Adafruit_NeoPixel pixels(
@@ -444,6 +456,7 @@ StoredPairingConfig pairingConfig;
 enum class DisplayMode : uint8_t {
   NETWORK_ERROR,
   NETWORK_READY,
+  FALLBACK_READY,
   USER
 };
 
@@ -453,6 +466,9 @@ DisplayMode displayMode = DisplayMode::NETWORK_ERROR;
 bool ethernetStarted = false;
 bool networkOnline   = false;
 bool udpStarted      = false;
+bool httpStarted     = false;
+bool webApplyPending = false;
+uint32_t webApplyAtMs = 0;
 
 uint8_t reconnectRetryCount = 0;
 uint8_t gatewayFailCount    = 0;
@@ -472,6 +488,10 @@ bool companionPaired = false;
 bool statusPhaseOn = true;
 uint32_t statusPhaseChangedMs = 0;
 uint32_t readyStartedMs = 0;
+bool resetConfirmActive = false;
+uint32_t resetConfirmStartedMs = 0;
+uint32_t resetConfirmPhaseChangedMs = 0;
+bool resetConfirmPhaseOn = true;
 
 // Button
 bool rawButtonState    = HIGH;
@@ -952,6 +972,19 @@ void enterNetworkReadyDisplay() {
   renderColor(COLOR_GREEN);
 }
 
+void enterFallbackReadyDisplay() {
+  DEBUG_PRINT("STATUS [");
+  DEBUG_PRINT(millis());
+  DEBUG_PRINTLN(" ms]: DHCP FALLBACK -> orange blink for 7 s");
+
+  brightness = 100;
+  displayMode = DisplayMode::FALLBACK_READY;
+  statusPhaseOn = true;
+  statusPhaseChangedMs = millis();
+  readyStartedMs = millis();
+  renderColor(COLOR_ORANGE);
+}
+
 void finishNetworkReadyDisplay() {
   DEBUG_PRINT("STATUS [");
   DEBUG_PRINT(millis());
@@ -974,6 +1007,28 @@ void finishNetworkReadyDisplay() {
 void handleStatusDisplay() {
   const uint32_t now = millis();
 
+  // A successful 5-second boot reset gets a distinct, very fast red
+  // confirmation for 3 seconds. Network acquisition continues underneath.
+  if (resetConfirmActive) {
+    if (now - resetConfirmStartedMs >= RESET_CONFIRM_DURATION_MS) {
+      resetConfirmActive = false;
+      // Immediately render the current underlying network state.
+      if (networkOnline) {
+        if (dhcpFallbackActive) renderColor(COLOR_ORANGE);
+        else renderColor(COLOR_GREEN);
+      } else {
+        renderColor(COLOR_RED);
+      }
+    } else {
+      if (now - resetConfirmPhaseChangedMs >= RESET_CONFIRM_BLINK_MS) {
+        resetConfirmPhaseChangedMs = now;
+        resetConfirmPhaseOn = !resetConfirmPhaseOn;
+        if (resetConfirmPhaseOn) renderColor(COLOR_RED); else renderOff();
+      }
+      return;
+    }
+  }
+
   if (displayMode == DisplayMode::NETWORK_ERROR) {
     const uint32_t interval =
       statusPhaseOn ? ERROR_RED_ON_MS : ERROR_RED_OFF_MS;
@@ -989,6 +1044,20 @@ void handleStatusDisplay() {
       }
     }
 
+    return;
+  }
+
+  if (displayMode == DisplayMode::FALLBACK_READY) {
+    if (now - readyStartedMs >= FALLBACK_DURATION_MS) {
+      finishNetworkReadyDisplay();
+      return;
+    }
+    const uint32_t interval = statusPhaseOn ? READY_GREEN_ON_MS : READY_GREEN_OFF_MS;
+    if (now - statusPhaseChangedMs >= interval) {
+      statusPhaseChangedMs = now;
+      statusPhaseOn = !statusPhaseOn;
+      if (statusPhaseOn) renderColor(COLOR_ORANGE); else renderOff();
+    }
     return;
   }
 
@@ -1061,10 +1130,16 @@ bool physicalLinkUp() {
 }
 
 void stopUDP() {
-  if (udpStarted) {
-    close(OSC_SOCKET);
-    udpStarted = false;
-  }
+  if (udpStarted) { close(OSC_SOCKET); udpStarted = false; }
+}
+void stopHTTP() { close(HTTP_SOCKET); httpStarted = false; }
+bool startHTTPServer() {
+  close(HTTP_SOCKET);
+  const int8_t r = socket(HTTP_SOCKET, Sn_MR_TCP4, HTTP_PORT, SF_IO_NONBLOCK);
+  if (r != HTTP_SOCKET) return false;
+  if (listen(HTTP_SOCKET) != SOCK_OK) { close(HTTP_SOCKET); return false; }
+  httpStarted = true;
+  return true;
 }
 
 void calculateBroadcastAddress() {
@@ -1090,6 +1165,8 @@ void dhcpAssigned() {
   netInfo.ipmode = NETINFO_DHCP_V4;
   network_initialize(netInfo);
   dhcpLeaseReady = true;
+  dhcpFallbackActive = false;
+  dhcpFallbackTimerActive = false;
 }
 
 void dhcpConflict() {
@@ -1117,6 +1194,8 @@ void beginEthernetAttempt() {
 
   close(DHCP_SOCKET);
   close(OSC_SOCKET);
+  close(HTTP_SOCKET);
+  httpStarted = false;
 
   // Hardware reset and socket-memory initialization use Waveshare's
   // proven SPI0 implementation for this exact RP2350-POE-ETH board.
@@ -1137,6 +1216,8 @@ void beginEthernetAttempt() {
   makeDeviceMac(netInfo.mac);
 
   if (storedConfig.staticEnabled) {
+    dhcpFallbackActive = false;
+    dhcpFallbackTimerActive = false;
     memcpy(netInfo.ip, storedConfig.ip, 4);
     memcpy(netInfo.sn, storedConfig.subnet, 4);
     memcpy(netInfo.gw, storedConfig.gateway, 4);
@@ -1155,6 +1236,11 @@ void beginEthernetAttempt() {
     DHCP_init(DHCP_SOCKET, dhcpBuffer);
     reg_dhcp_cbfunc(dhcpAssigned, dhcpAssigned, dhcpConflict);
     dhcpActive = true;
+    dhcpFallbackActive = false;
+    if (!dhcpFallbackTimerActive) {
+      dhcpFallbackTimerActive = true;
+      dhcpFallbackStartedMs = millis();
+    }
     lastDhcpTickMs = millis();
   }
 
@@ -1163,6 +1249,8 @@ void beginEthernetAttempt() {
 
 void restartNetworkNow() {
   reconnectRetryCount = 0;
+  dhcpFallbackActive = false;
+  dhcpFallbackTimerActive = false;
   gatewayFailCount = 0;
 
   enterNetworkErrorDisplay();
@@ -1179,9 +1267,12 @@ void networkBecameOnline() {
 
   stopUDP();
   udpStarted = startOSCUDP();
+  httpStarted = startHTTPServer();
 
   DEBUG_PRINT("OSC UDP socket: ");
   DEBUG_PRINTLN(udpStarted ? "OK" : "FAILED");
+  DEBUG_PRINT("HTTP server: ");
+  DEBUG_PRINTLN(httpStarted ? "OK" : "FAILED");
 
   lastNetworkCheckMs = millis();
 
@@ -1199,7 +1290,8 @@ void networkBecameOnline() {
   DEBUG_PRINT(':');
   DEBUG_PRINTLN(OSC_PORT);
 
-  enterNetworkReadyDisplay();
+  if (dhcpFallbackActive) enterFallbackReadyDisplay();
+  else enterNetworkReadyDisplay();
 
   lastHeartbeatMs = millis() - HEARTBEAT_INTERVAL_MS;
   sendHeartbeat();
@@ -1212,6 +1304,7 @@ void networkFailed() {
 
   networkOnline = false;
   stopUDP();
+  stopHTTP();
   DHCP_stop();
   dhcpActive = false;
   dhcpLeaseReady = false;
@@ -1255,6 +1348,24 @@ void serviceDHCP() {
   }
 }
 
+void activateDhcpFallback() {
+  DEBUG_PRINTLN("DHCP: 60 s without lease -> activating fallback 192.168.1.10/24");
+  DHCP_stop();
+  dhcpActive = false;
+
+  ipAddressToBytes(DHCP_FALLBACK_IP, netInfo.ip);
+  ipAddressToBytes(DHCP_FALLBACK_SUBNET, netInfo.sn);
+  ipAddressToBytes(DHCP_FALLBACK_GATEWAY, netInfo.gw);
+  memset(netInfo.dns, 0, sizeof(netInfo.dns));
+  netInfo.dhcp = NETINFO_STATIC;
+  netInfo.ipmode = NETINFO_STATIC_V4;
+  network_initialize(netInfo);
+
+  dhcpFallbackActive = true;
+  dhcpFallbackTimerActive = false;
+  dhcpLeaseReady = true;
+}
+
 void handleNetworkAcquisition() {
   if (!ethernetStarted) {
     const uint32_t interval = currentReconnectInterval();
@@ -1273,6 +1384,13 @@ void handleNetworkAcquisition() {
       ++reconnectRetryCount;
       beginEthernetAttempt();
     }
+    return;
+  }
+
+  if (!storedConfig.staticEnabled && dhcpFallbackTimerActive &&
+      millis() - dhcpFallbackStartedMs >= DHCP_FALLBACK_TIMEOUT_MS) {
+    activateDhcpFallback();
+    networkBecameOnline();
     return;
   }
 
@@ -1331,6 +1449,48 @@ void handleNetworkHealth() {
 
   gatewayFailCount = 0;
 }
+// ============================================================
+// HTTP NETWORK SETUP (Port 80)
+// ============================================================
+String ipText(const IPAddress &ip) { return String(ip[0])+"."+String(ip[1])+"."+String(ip[2])+"."+String(ip[3]); }
+String queryValue(const String &q, const char *key) {
+  String n=String(key)+"="; int p=0;
+  while (p <= (int)q.length()) { int e=q.indexOf('&',p); if(e<0)e=q.length(); String x=q.substring(p,e); if(x.startsWith(n)) return x.substring(n.length()); p=e+1; }
+  return "";
+}
+void httpReply(const String &body, const char *status="200 OK") {
+  String h="HTTP/1.1 "; h+=status; h+="\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Length: "; h+=String(body.length()); h+="\r\n\r\n";
+  send(HTTP_SOCKET,(uint8_t*)h.c_str(),h.length()); send(HTTP_SOCKET,(uint8_t*)body.c_str(),body.length());
+}
+String setupPage(const String &msg="") {
+  IPAddress curIP=netInfoIP(netInfo.ip), curSN=netInfoIP(netInfo.sn), curGW=netInfoIP(netInfo.gw);
+  IPAddress cfgIP=storedConfig.staticEnabled?bytesToIP(storedConfig.ip):curIP;
+  IPAddress cfgSN=storedConfig.staticEnabled?bytesToIP(storedConfig.subnet):curSN;
+  IPAddress cfgGW=storedConfig.staticEnabled?bytesToIP(storedConfig.gateway):curGW;
+  String x; x.reserve(3600);
+  x+=F("<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'><title>HotButton Network Setup</title><style>body{font-family:system-ui,-apple-system,sans-serif;max-width:620px;margin:40px auto;padding:0 18px;background:#f4f4f4}main{background:#fff;padding:26px;border-radius:14px}label{display:block;margin:14px 0 5px;font-weight:600}input,select{width:100%;box-sizing:border-box;padding:10px;font-size:16px}button{margin-top:22px;padding:11px 18px;font-size:16px}.info,.msg{padding:12px;border-radius:8px;background:#eee;line-height:1.5}.msg{background:#e8f5e9;margin-bottom:12px}.hint{font-size:13px;color:#666}</style></head><body><main><h1>HotButton Network Setup</h1>");
+  if(msg.length()){x+=F("<div class='msg'>");x+=msg;x+=F("</div>");}
+  x+=F("<div class='info'><b>Current IP:</b> ");x+=ipText(curIP);x+=F("<br><b>Subnet:</b> ");x+=ipText(curSN);x+=F("<br><b>Gateway:</b> ");x+=ipText(curGW);x+=F("<br><b>Mode:</b> ");x+=(storedConfig.staticEnabled?"Static":"DHCP");x+=F("<br><b>Companion IP:</b> ");x+=(companionPaired?ipText(companionIP):"Broadcast / unpaired");x+=F("</div><form action='/save' method='get'><label>Network mode</label><select name='mode'><option value='dhcp'");if(!storedConfig.staticEnabled)x+=" selected";x+=F(">DHCP</option><option value='static'");if(storedConfig.staticEnabled)x+=" selected";x+=F(">Static</option></select>");
+  x+=F("<label>IP address</label><input name='ip' value='");x+=ipText(cfgIP);x+=F("'><label>Subnet mask</label><input name='subnet' value='");x+=ipText(cfgSN);x+=F("'><label>Gateway</label><input name='gateway' value='");x+=ipText(cfgGW);x+=F("'><label>Companion unicast IP</label><input name='companion' value='");x+=(companionPaired?ipText(companionIP):"0.0.0.0");x+=F("'><div class='hint'>0.0.0.0 clears the stored Companion IP and returns OSC to broadcast discovery.</div><button>Save &amp; Restart Network</button></form></main></body></html>"); return x;
+}
+void saveFromWeb(const String &q) {
+  String mode=queryValue(q,"mode"), a=queryValue(q,"ip"), b=queryValue(q,"subnet"), c=queryValue(q,"gateway"), d=queryValue(q,"companion");
+  IPAddress comp; if(!parseIPv4(d.c_str(),comp)){httpReply(setupPage("Invalid Companion IP."),"400 Bad Request");return;}
+  if(mode=="static") { IPAddress ip,sn,gw; if(!parseIPv4(a.c_str(),ip)||!parseIPv4(b.c_str(),sn)||!parseIPv4(c.c_str(),gw)||isZeroIP(ip)||isZeroIP(sn)){httpReply(setupPage("Invalid static network settings."),"400 Bad Request");return;} if(!setStaticNetworkConfig(ip,sn,gw)){httpReply(setupPage("Could not save network settings."),"500 Internal Server Error");return;} }
+  else if(mode=="dhcp") { if(!setDHCPNetworkConfig()){httpReply(setupPage("Could not save DHCP mode."),"500 Internal Server Error");return;} }
+  else {httpReply(setupPage("Invalid mode."),"400 Bad Request");return;}
+  bool ok=isZeroIP(comp)?clearPairingConfig():savePairingIP(comp); if(!ok){httpReply(setupPage("Network saved, but Companion IP could not be saved."),"500 Internal Server Error");return;}
+  httpReply(F("<!doctype html><html><body style='font-family:system-ui;max-width:600px;margin:40px auto'><h1>Saved</h1><p>Settings saved. The network will restart now.</p></body></html>")); webApplyPending=true; webApplyAtMs=millis()+750;
+}
+void handleHTTP() {
+  if(!networkOnline||!httpStarted)return; uint8_t st=getSn_SR(HTTP_SOCKET);
+  if(st==SOCK_CLOSED){httpStarted=startHTTPServer();return;} if(st==SOCK_INIT){listen(HTTP_SOCKET);return;} if(st==SOCK_CLOSE_WAIT){disconnect(HTTP_SOCKET);return;} if(st!=SOCK_ESTABLISHED)return;
+  uint8_t buf[1024]; int32_t n=recv(HTTP_SOCKET,buf,sizeof(buf)-1); if(n<=0)return; buf[n]=0; String r((char*)buf); int e=r.indexOf("\r\n"); if(e<0){disconnect(HTTP_SOCKET);return;} String line=r.substring(0,e);
+  if(line.startsWith("GET /save?")){int q=line.indexOf('?'),sp=line.indexOf(' ',q); if(q>=0&&sp>q)saveFromWeb(line.substring(q+1,sp)); else httpReply("Bad request","400 Bad Request");}
+  else if(line.startsWith("GET / ")||line.startsWith("GET /index.html "))httpReply(setupPage()); else httpReply("Not found","404 Not Found"); disconnect(HTTP_SOCKET);
+}
+void handlePendingWebApply(){if(webApplyPending&&(int32_t)(millis()-webApplyAtMs)>=0){webApplyPending=false;restartNetworkNow();}}
+
 // ============================================================
 // OSC ENCODING
 // ============================================================
@@ -2084,6 +2244,13 @@ void handleBootNetworkReset() {
   suppressButtonUntilRelease = true;
 
   restartNetworkNow();
+
+  // Distinct acknowledgement: reset was accepted, user can release now.
+  resetConfirmActive = true;
+  resetConfirmStartedMs = millis();
+  resetConfirmPhaseChangedMs = millis();
+  resetConfirmPhaseOn = true;
+  renderColor(COLOR_RED);
 }
 
 
@@ -2159,6 +2326,10 @@ void loop() {
 
   // Receive OSC whenever the UDP listener is active.
   handleIncomingOSC();
+
+  // Optional browser-based network / Companion unicast setup.
+  handleHTTP();
+  handlePendingWebApply();
 
   // Broadcast presence while the network is healthy.
   handleHeartbeat();
