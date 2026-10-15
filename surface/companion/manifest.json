@@ -1,0 +1,34 @@
+{
+  "type": "surface",
+  "id": "kra55k0pf-hotbutton-surface",
+  "name": "HotButton: Surface",
+  "shortname": "HotButton Surface",
+  "description": "HotButton Surface integration for Bitfocus Companion using OSC button events",
+  "version": "0.1.4",
+  "license": "MIT",
+  "repository": "https://github.com/Thomosaurus6/companion-module-hotbutton",
+  "maintainers": [
+    {
+      "name": "Thomas Thielen",
+      "github": "Thomosaurus6"
+    }
+  ],
+  "runtime": {
+    "type": "node22",
+    "api": "nodejs-ipc",
+    "apiVersion": "1.1.0",
+    "entrypoint": "../main.js"
+  },
+  "manufacturer": "Kra55k0pf",
+  "products": [
+    "HotButton Surface"
+  ],
+  "keywords": [
+    "surface",
+    "hotbutton",
+    "osc"
+  ],
+  "usbIds": [],
+  "isPrerelease": true,
+  "bugs": "https://github.com/Thomosaurus6/companion-module-hotbutton/issues"
+}

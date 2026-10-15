@@ -136,6 +136,28 @@ At boot the user LED starts in its defined default/reset state instead
 of restoring the previous user state. The firmware reports its current
 LED state to Companion so feedbacks and variables synchronize correctly.
 
+## Native Companion Surface Integration (v0.1.4)
+
+The optional HotButton Surface Integration allows physical HotButtons
+to appear as native surfaces in Bitfocus Companion 5.1.
+
+The integration works together with the existing HotButton OSC
+Connection:
+
+- **OSC Connection:** Handles pairing, network communication, button
+  events, LED control and device monitoring.
+- **Surface Integration:** Receives forwarded button events from the
+  OSC Connection and exposes each HotButton as an individual
+  Companion surface.
+
+Both components are required for native surface operation. The OSC
+Connection remains responsible for LED control.
+
+The Surface Integration source code is located in [`surface/`](surface/).
+It is built and installed separately from the OSC Connection.
+
+**Requirements:** Companion 5.1, Node.js 22 and Yarn 4.
+
 ## Documentation
 
 Detailed Companion connection settings, actions, feedbacks, variables
