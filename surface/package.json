@@ -1,0 +1,11 @@
+{
+  "name": "kra55k0pf-hotbutton-surface",
+  "version": "0.1.4",
+  "license": "MIT",
+  "type": "module",
+  "devDependencies": {
+    "@companion-module/tools": "3.1.1",
+    "@companion-surface/base": "1.4.1"
+  },
+  "main": "./main.js"
+}
