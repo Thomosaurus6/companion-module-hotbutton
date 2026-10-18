@@ -123,6 +123,26 @@ export function updateActions(self) {
       },
     },
 
+    led_flash_custom: {
+      name: 'LED Flash Custom',
+      description: 'Custom flash timing in milliseconds. Fade applies to both transitions and must not exceed either phase.',
+      options: [
+        dynamicIntegerOption('onMs', 'On duration (ms)', 500, 10, 60000),
+        dynamicIntegerOption('offMs', 'Off duration (ms)', 500, 10, 60000),
+        dynamicIntegerOption('fadeMs', 'Fade duration (ms, 0 = no fade)', 100, 0, 60000),
+      ],
+      callback: (action) => {
+        const onMs = self.clampInt(action.options.onMs, 10, 60000)
+        const offMs = self.clampInt(action.options.offMs, 10, 60000)
+        const fadeMs = self.clampInt(action.options.fadeMs, 0, Math.min(onMs, offMs))
+        self.sendOsc('/led/flash/custom', [
+          { type: 'i', value: onMs },
+          { type: 'i', value: offMs },
+          { type: 'i', value: fadeMs },
+        ])
+      },
+    },
+
     led_state: {
       name: 'LED State',
       options: [

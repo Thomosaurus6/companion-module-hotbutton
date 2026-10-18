@@ -5,7 +5,7 @@
   "name": "HotButton: OSC",
   "shortname": "HotButton",
   "description": "PoE OSC HotButton for Bitfocus Companion",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "license": "MIT",
   "repository": "https://github.com/Thomosaurus6/companion-module-hotbutton",
   "bugs": "https://github.com/Thomosaurus6/companion-module-hotbutton/issues",
@@ -19,7 +19,7 @@
   "runtime": {
     "type": "node22",
     "api": "nodejs-ipc",
-    "apiVersion": "0.0.0",
+    "apiVersion": "2.0.4",
     "entrypoint": "../src/main.js"
   },
   "legacyIds": [],

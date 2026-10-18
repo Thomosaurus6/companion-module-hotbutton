@@ -63,7 +63,7 @@ extern "C" {
 
 /* Retry to processing DHCP */
 #define	MAX_DHCP_RETRY          2        ///< Maximum retry count
-#define	DHCP_WAIT_TIME          10       ///< Wait Time 10s
+#define	DHCP_WAIT_TIME          2        ///< DHCP DISCOVER retry after 2 s (was 10 s)
 
 
 /* UDP port numbers for DHCP */

@@ -52,6 +52,9 @@
 
 #include "socket.h"
 #include "dhcp.h"
+#include <stdio.h>
+
+// Implemented by the HotButton sketch; timestamps use Arduino millis().
 
 /* If you want to display debug & processing message, Define _DHCP_DEBUG_ in dhcp.h */
 
@@ -470,12 +473,12 @@ void send_DHCP_DISCOVER(void) {
 #if 1
     // 20231016 taylor//teddy 240122
 #if ((_NETCHIP_ == 6100)|| (_NETCHIP_ == 6300))
-    sendto(DHCP_SOCKET, (uint8_t *)pDHCPMSG, RIP_MSG_SIZE, ip, DHCP_SERVER_PORT, 4);
+    int32_t sent = sendto(DHCP_SOCKET, (uint8_t *)pDHCPMSG, RIP_MSG_SIZE, ip, DHCP_SERVER_PORT, 4);
 #else
-    sendto(DHCP_SOCKET, (uint8_t *)pDHCPMSG, RIP_MSG_SIZE, ip, DHCP_SERVER_PORT);
+    int32_t sent = sendto(DHCP_SOCKET, (uint8_t *)pDHCPMSG, RIP_MSG_SIZE, ip, DHCP_SERVER_PORT);
 #endif
 #else
-    sendto(DHCP_SOCKET, (uint8_t *)pDHCPMSG, RIP_MSG_SIZE, ip, DHCP_SERVER_PORT);
+    int32_t sent = sendto(DHCP_SOCKET, (uint8_t *)pDHCPMSG, RIP_MSG_SIZE, ip, DHCP_SERVER_PORT);
 #endif
 }
 

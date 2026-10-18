@@ -1,11 +1,14 @@
+import dgram from 'node:dgram'
 import { InstanceBase, InstanceStatus } from '@companion-module/base'
 import { getConfigFields } from './config.js'
 import { updateActions } from './actions.js'
 import { updateFeedbacks } from './feedbacks.js'
 import { updateVariableDefinitions } from './variables.js'
 
+const SURFACE_PORT = 17762
+const SURFACE_HOST = '127.0.0.1'
 const DEFAULT_PORT = 13122
-const DEFAULT_TIMEOUT = 20000
+const DEFAULT_TIMEOUT = 10000
 const DEFAULT_LONG_PRESS_MS = 2000
 const RELEASE_LONG_PRESS_PULSE_MS = 1000
 const PAIR_RETRY_MS = 1000
@@ -17,7 +20,9 @@ class HotButtonInstance extends InstanceBase {
     this.config = {}
     this.socket = null
     this.socketPort = null
+    this.surfaceSocket = null
     this.deviceId = ''
+    this.deviceName = ''
 
     this.online = false
     this.lastSeenAt = 0
@@ -62,14 +67,8 @@ class HotButtonInstance extends InstanceBase {
   async init(config, _isFirstInit, _secrets) {
     this.config = this.normalizeConfig(config)
 
-    // Manual mode intentionally validates/re-learns the Device ID from the
-    // configured IP every time the module starts. This prevents a stale ID
-    // from remaining attached to an IP that now belongs to another HotButton.
-    if (this.config.pairingMode === 'manual' && this.config.deviceId) {
-      this.config.deviceId = ''
-      this.saveConfig({ ...this.config })
-    }
-
+    // Keep the saved identity across module restarts. Incoming OSC traffic
+    // is still restricted to the configured IP and matching Device ID.
     this.deviceId = this.config.deviceId || ''
 
     updateVariableDefinitions(this)
@@ -78,14 +77,12 @@ class HotButtonInstance extends InstanceBase {
 
     this.updateVariables()
     this.restartSocket()
+    this.startSurfaceBridge()
     this.startTimers()
     this.refreshStatus()
 
-    // Re-confirm persisted pairings after every module start. The HotButton
-    // answers /pair with /pair/ack and refreshes the same Companion IP.
-    if (this.getTargetIp() && this.deviceId) {
-      this.beginPairing(this.getTargetIp(), this.deviceId)
-    }
+    // Stored HotButtons verify the Companion through /connection/check.
+    // Do not issue /pair automatically: pairing is only allowed in discovery.
   }
 
   async destroy() {
@@ -93,6 +90,7 @@ class HotButtonInstance extends InstanceBase {
     this.clearLongPressTimers()
     this.clearPairingRetry()
     this.closeSocket()
+    this.stopSurfaceBridge()
   }
 
   async configUpdated(config, _secrets) {
@@ -128,14 +126,14 @@ class HotButtonInstance extends InstanceBase {
         next.pairingMode = 'manual'
         next.manualIp = staticIp
         next.learnedIp = ''
-        next.deviceId = ''
+        next.deviceId = deviceId
         next.relearn = false
 
         next.staticIp = ''
         next.staticSubnet = '255.255.255.0'
         next.staticGateway = '0.0.0.0'
 
-        this.deviceId = ''
+        this.deviceId = deviceId
         this.resetRuntimeDeviceState()
 
         this.saveConfig({ ...next })
@@ -255,6 +253,7 @@ class HotButtonInstance extends InstanceBase {
   resetRuntimeDeviceState() {
     this.online = false
     this.lastSeenAt = 0
+    this.deviceName = ''
 
     this.buttonState = ''
     this.pressStartedAt = 0
@@ -391,6 +390,7 @@ class HotButtonInstance extends InstanceBase {
     this.lastSeenAt = Date.now()
     this.online = true
     this.log('info', `Paired with ${deviceId} at ${sourceIp}; HotButton confirmed Unicast mode.`)
+    this.sendSurfaceEvent('alive')
 
     // The firmware also pushes a snapshot after pair/ack. Request it once
     // explicitly as well so Companion always starts from authoritative state.
@@ -421,6 +421,8 @@ class HotButtonInstance extends InstanceBase {
     }
 
     this.setVariableValues({
+      device_name: this.deviceName || '',
+
       device_id:
         this.deviceId ||
         this.config.deviceId ||
@@ -484,6 +486,37 @@ class HotButtonInstance extends InstanceBase {
     })
   }
 
+  // Local-only UDP bridge consumed by the separate HotButton Surface plugin.
+  // The full stable device ID is the surface identity; no device name is used.
+  startSurfaceBridge() {
+    if (this.surfaceSocket) return
+    try {
+      this.surfaceSocket = dgram.createSocket('udp4')
+      this.surfaceSocket.on('error', (err) => {
+        this.log('warn', `Surface bridge: ${err.message}`)
+      })
+    } catch (err) {
+      this.surfaceSocket = null
+      this.log('warn', `Surface bridge unavailable: ${err.message}`)
+    }
+  }
+
+  stopSurfaceBridge() {
+    if (!this.surfaceSocket) return
+    try { this.surfaceSocket.close() } catch (_) { /* closing */ }
+    this.surfaceSocket = null
+  }
+
+  sendSurfaceEvent(event) {
+    if (!this.surfaceSocket || !this.online || !this.isPaired()) return
+    const deviceId = this.deviceId || this.config.deviceId
+    if (!/^hotbutton_[A-Za-z0-9_-]+$/.test(deviceId)) return
+    const payload = Buffer.from(JSON.stringify({ v: 1, deviceId, event, deviceName: this.deviceName || '' }), 'utf8')
+    this.surfaceSocket.send(payload, SURFACE_PORT, SURFACE_HOST, (err) => {
+      if (err) this.log('warn', `Surface bridge send failed: ${err.message}`)
+    })
+  }
+
   restartSocket() {
     this.closeSocket()
 
@@ -544,7 +577,10 @@ class HotButtonInstance extends InstanceBase {
     this.stopTimers()
 
     this.statusTimer = setInterval(
-      () => this.checkOnlineTimeout(),
+      () => {
+        this.checkOnlineTimeout()
+        this.sendSurfaceEvent('alive')
+      },
       1000,
     )
 
@@ -661,12 +697,12 @@ class HotButtonInstance extends InstanceBase {
     if (this.online) {
       this.setStatusIfChanged(
         InstanceStatus.Ok,
-        `${this.deviceId} @ ${this.getTargetIp()}`,
+        `${this.deviceName || this.deviceId} @ ${this.getTargetIp()}`,
       )
     } else {
       this.setStatusIfChanged(
         InstanceStatus.Disconnected,
-        `${this.deviceId} @ ${this.getTargetIp()} — heartbeat timeout`,
+        `${this.deviceName || this.deviceId} @ ${this.getTargetIp()} — heartbeat timeout`,
       )
     }
   }
@@ -774,9 +810,12 @@ class HotButtonInstance extends InstanceBase {
         })
 
         pos += 4
+      } else if (type === 's') {
+        const field = readPaddedString(pos)
+        if (!field) return null
+        args.push({ type: 's', value: field.text })
+        pos = field.next
       } else {
-        // HotButton inbound protocol currently uses integer arguments
-        // for heartbeat and all LED state messages.
         return null
       }
     }
@@ -812,6 +851,12 @@ class HotButtonInstance extends InstanceBase {
       return { deviceId: match[1], event: 'heartbeat' }
     }
 
+    match = address.match(/^\/(hotbutton_[^/]+)\/device\/name$/)
+    if (match) return { deviceId: match[1], event: 'device_name' }
+
+    match = address.match(/^\/(hotbutton_[^/]+)\/connection\/check$/)
+    if (match) return { deviceId: match[1], event: 'connection_check' }
+
     match = address.match(/^\/(hotbutton_[^/]+)\/pair\/ack$/)
     if (match) {
       return { deviceId: match[1], event: 'pair_ack' }
@@ -845,6 +890,30 @@ class HotButtonInstance extends InstanceBase {
       return
     }
 
+    if (parsed.event === 'connection_check') {
+      const targetIp = this.getTargetIp()
+      const expectedId = this.deviceId || this.config.deviceId
+      if (!targetIp || !expectedId || sourceIp !== targetIp || parsed.deviceId !== expectedId) return
+      if (osc.args.length !== 1 || osc.args[0].type !== 'i') return
+      // Reply from the same configured OSC port to the device that requested it.
+      this.oscSend(sourceIp, Number(this.config.oscPort || DEFAULT_PORT),
+        `/${parsed.deviceId}/connection/ack`, [{ type: 'i', value: osc.args[0].value }])
+      if (!this.pairingConfirmed) {
+        this.clearPairingRetry()
+        this.pairingInProgress = false
+        this.pairingConfirmed = true
+        this.updateVariables('connection_ack')
+      }
+      this.lastSeenAt = Date.now()
+      if (!this.online) {
+        this.online = true
+        this.checkFeedbacks('device_online')
+      }
+      this.refreshStatus()
+      this.sendSurfaceEvent('alive')
+      return
+    }
+
     if (this.config.pairingMode === 'learn' && !this.isPaired()) {
       // Only a physical press may discover/re-learn a HotButton in Learn mode.
       if (parsed.event !== 'press') return
@@ -862,7 +931,8 @@ class HotButtonInstance extends InstanceBase {
     }
 
     if (this.config.pairingMode === 'manual' && this.config.manualIp && !this.isPaired()) {
-      if (sourceIp !== this.config.manualIp) return
+      // Do not claim a device from its heartbeat/IP alone. A physical press is required.
+      if (parsed.event !== 'press' || sourceIp !== this.config.manualIp) return
 
       if (!this.deviceId) {
         this.deviceId = parsed.deviceId
@@ -886,10 +956,24 @@ class HotButtonInstance extends InstanceBase {
       this.checkFeedbacks('device_online')
     }
 
+    if (parsed.event === 'device_name') {
+      if (osc.args.length === 1 && osc.args[0].type === 's') {
+        const name = osc.args[0].value.trim().slice(0, 80)
+        if (name && name !== this.deviceName) {
+          this.deviceName = name
+          this.updateVariables('device_name')
+          this.refreshStatus()
+        }
+      }
+      return
+    }
+
     if (parsed.event === 'press') {
       this.handlePressEvent()
+      this.sendSurfaceEvent('press')
     } else if (parsed.event === 'release') {
       this.handleReleaseEvent()
+      this.sendSurfaceEvent('release')
     } else if (parsed.event === 'heartbeat') {
       const heartbeatState =
         osc.args.length === 1 && osc.args[0].type === 'i'
@@ -1152,6 +1236,7 @@ class HotButtonInstance extends InstanceBase {
       this.updateVariables(
         'heartbeat_sync_release',
       )
+      this.sendSurfaceEvent('release')
 
       this.checkFeedbacks(
         'button_long_press',

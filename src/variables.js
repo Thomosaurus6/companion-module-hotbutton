@@ -1,6 +1,7 @@
 export function updateVariableDefinitions(self) {
   self.setVariableDefinitions({
     device_id: { name: 'Device ID' },
+    device_name: { name: 'Device Name' },
     device_ip: { name: 'Device IP' },
     button_state: { name: 'Button State' },
     last_event: { name: 'Last Event' },

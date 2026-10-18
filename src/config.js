@@ -4,6 +4,7 @@ export function getConfigFields(self) {
   const cfg = self.config ?? {}
   const effectiveIp = self.getTargetIp() || '—'
   const deviceId = self.deviceId || cfg.deviceId || '—'
+  const deviceName = self.deviceName || '—'
   const pairingState = self.getPairingStateLabel()
   const onlineText = self.online ? 'ONLINE' : 'OFFLINE'
   const hasLearnedDevice = self.isPaired() && Boolean(cfg.learnedIp)
@@ -59,9 +60,16 @@ export function getConfigFields(self) {
     {
       type: 'static-text',
       id: 'deviceInfo',
-      label: 'Device',
+      label: 'Device ID',
       width: 4,
       value: deviceId,
+    },
+    {
+      type: 'static-text',
+      id: 'deviceNameInfo',
+      label: 'Device Name',
+      width: 4,
+      value: deviceName,
     },
     {
       type: 'static-text',
@@ -172,7 +180,7 @@ export function getConfigFields(self) {
       id: 'onlineTimeout',
       label: 'Online Timeout (ms)',
       width: 4,
-      default: 20000,
+      default: 10000,
       min: 5000,
       max: 120000,
       step: 1000,

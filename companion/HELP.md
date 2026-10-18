@@ -166,6 +166,20 @@ Selections: Off, 1–10.
 
 Flashing is generated locally by the firmware, not by continuous Companion traffic.
 
+### LED Flash Custom
+
+The separate **LED Flash Custom** action allows custom timing without changing the existing 1–10 presets:
+
+- **On duration:** 10–60000 ms
+- **Off duration:** 10–60000 ms
+- **Fade duration:** 0–min(On, Off) ms; 0 disables fading
+
+```text
+/<deviceId>/led/flash/custom <int32 onMs> <int32 offMs> <int32 fadeMs>
+```
+
+The firmware stores this as flash program 11. LED power remains independently controlled.
+
 ### LED State
 
 Operations: On, Off, Toggle.
@@ -325,3 +339,20 @@ v1.0.0 is the first stable, end-to-end hardware-tested release. Tested workflows
 MIT
 
 Maintainer: Thomas Thielen / Thomosaurus6
+
+## Device names
+
+The device's OSC ID is generated from its RP2350 hardware ID. Its friendly display name (64 adjectives x 64 animals/mythical creatures) is randomly assigned on first boot and stored separately from pairing/network settings. In Edit Connection the **Device Name** field shows the friendly name; `device_name` is also available as a Companion variable. The connection label remains user-controlled. The Connections list's static module subtitle remains **HotButton: OSC** (the module API cannot dynamically replace this manifest label). The name is included in connection status messages.
+
+After upgrading from `hotbutton_1`, re-learn/re-pair the device; the OSC Device ID has changed. Manually setting the Companion IP on the HotButton does not pair it. Pairing requires a physical button press.
+
+## Connection module v1.2.0 — Custom Flash
+
+The **LED Flash Custom** action sends `/hotbutton_<device-id>/led/flash/custom` with three OSC int32 arguments:
+
+- On Duration: 10–60000 ms
+- Off Duration: 10–60000 ms
+- Fade Duration: 0–min(On Duration, Off Duration) ms
+
+The v1.1.5 pairing fix is retained: changing from Learn to Manual when assigning a static IP preserves the device ID.
+

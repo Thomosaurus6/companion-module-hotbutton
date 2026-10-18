@@ -4,6 +4,22 @@ HotButton is a PoE-powered physical network button for **Bitfocus
 Companion**. The hardware communicates using OSC over UDP. One Companion
 connection represents one physical HotButton.
 
+## Startup connection check and LED states
+
+A previously paired HotButton sends `/<deviceId>/connection/check` with a unique integer token to its stored Companion IP every 5 seconds, starting **after** the network-ready indication. The module replies with `/<deviceId>/connection/ack` containing the same token. The HotButton checks the sender IP and token before accepting the reply. The 60-second window does **not** delay a successful connection.
+
+After 60 seconds without a reply, a physical press broadcasts discovery while the checks to the original Companion continue. The HotButton accepts pairing only while unpaired or in this recovery state; it ignores pairing after a successful connection for the rest of the boot session. The existing heartbeat/online timeout is independent of this startup check.
+
+| Condition | LED indication | Duration / meaning |
+|---|---|---|
+| No usable IP | Red smooth breathing | Until DHCP, static IP or fallback is ready |
+| Normal network ready | Green, Flash program 10 (50 ms on/off) | 3 s; connection check starts afterwards |
+| DHCP fallback | Violet, Flash program 10 | 3 s; fallback IP `192.168.1.10` |
+| Previously paired: startup check | Blue smooth breathing | Up to 60 s; check every 5 s |
+| Unpaired or recovery after 60 s | Orange smooth breathing | Until valid ACK or successful pairing; recovery keeps checking every 5 s |
+| Companion ACK or successful pairing | Green, Flash program 10 | 3 s, then Companion-controlled LEDs |
+| Physical boot reset accepted | Red, Flash program 10 | 3 s; reset has priority |
+
 ## 1. Connection and pairing
 
 ### Pairing Mode: Learn
@@ -41,7 +57,7 @@ also be cleared through the web interface by saving Companion IP
 
 Enter the HotButton IP address. Companion accepts device traffic from
 that IP, learns/validates its Device ID and completes the same pair/ACK
-handshake.
+handshake when the HotButton is unpaired or in recovery **and the physical button is pressed**.
 
 ## 2. Network configuration
 
@@ -50,8 +66,7 @@ handshake.
 The firmware provides a network setup page on **TCP port 80**. Open the
 HotButton's current IP address in a browser.
 
-The page shows the active IP, subnet, gateway, network mode and
-Companion IP. It allows configuration of:
+The page shows the device name, unique device ID, active IP, subnet, gateway, network mode, pairing state and Companion IP. It allows configuration of:
 
 -   **Network mode:** DHCP or Static
 -   **IP address**
@@ -59,13 +74,12 @@ Companion IP. It allows configuration of:
 -   **Gateway**
 -   **Companion unicast IP**
 
-Use **Save & Restart Network** to save the settings and restart the
+In DHCP mode the static IP/subnet/gateway fields are disabled; in Static mode they are editable. Use **Save & Restart Network** to save the settings and restart the
 network interface.
 
 For the Companion unicast IP:
 
--   a valid IPv4 address stores that address as the Companion unicast
-    destination
+-   a valid IPv4 address stores that address but **does not pair** the device; changing an existing paired IP clears the pairing flag
 -   `0.0.0.0` clears the stored Companion IP and returns OSC
     transmission to broadcast discovery
 
@@ -96,10 +110,10 @@ Network**.
 
 Status indication:
 
--   red blinking while no usable IP is available
--   green blinking for 7 seconds after normal network configuration
+-   red breathing while no usable IP is available
+-   green Flash 10 for 3 seconds after normal network configuration
     succeeds
--   orange blinking for 7 seconds when the DHCP fallback becomes active
+-   violet Flash 10 for 3 seconds when the DHCP fallback becomes active
 
 ### Companion Learn-to-Static workflow
 
@@ -292,3 +306,20 @@ replace the existing Companion protocol.
 
 -   OSC UDP: `13122`
 -   HTTP network setup: `80`
+
+## Device names
+
+The device's OSC ID is generated from its RP2350 hardware ID. Its friendly display name (64 adjectives x 64 animals/mythical creatures) is randomly assigned on first boot and stored separately from pairing/network settings. In Edit Connection the **Device Name** field shows the friendly name; `device_name` is also available as a Companion variable. The connection label remains user-controlled. The Connections list's static module subtitle remains **HotButton: OSC** (the module API cannot dynamically replace this manifest label). The name is included in connection status messages.
+
+After upgrading from `hotbutton_1`, re-learn/re-pair the device; the OSC Device ID has changed. Manually setting the Companion IP on the HotButton does not pair it. Pairing requires a physical button press.
+
+## Connection module v1.2.0 — Custom Flash
+
+The **LED Flash Custom** action sends `/hotbutton_<device-id>/led/flash/custom` with three OSC int32 arguments:
+
+- On Duration: 10–60000 ms
+- Off Duration: 10–60000 ms
+- Fade Duration: 0–min(On Duration, Off Duration) ms
+
+The v1.1.5 pairing fix is retained: changing from Learn to Manual when assigning a static IP preserves the device ID.
+
